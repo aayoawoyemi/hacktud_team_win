@@ -3,6 +3,17 @@
 Rules for every coding agent on this repo (Claude Code, Codex, Cursor, pi, anything). Several people and several
 agents work on this repo at the same time, each in its own folder (git worktree) and branch.
 
+## Shared picture (read first, every session)
+
+- Read the pinned **agent log, issue #11** (`gh issue view 11 --comments`): start from the latest "state of the world"
+  comment, then everything after it. Then read `PRD.md` on the `notes` branch (`git show origin/notes:PRD.md`).
+- Introduce yourself once in #11 (agent name, human, work package WP-n, branch). Post on every status change:
+  `[agent] [WP-n] [started | progress | blocked | needs-decision | concept-change | done] summary + links`.
+- Comment densely: the why, rejected options, assumptions. Every file and major block starts with
+  `CONCEPT:` / `WHY:` (decision ID) / `DEPENDS ON:` / `AFFECTS:`.
+- Changed a concept (a contract, a dependency, an assumption)? Post `concept-change` in #11.
+- Ship messages and commits include `Why:` and `Affects:`.
+
 ## Before you write code
 
 1. Run `git sync`. It puts this branch on top of the latest `main` and lists what teammates shipped.
@@ -33,8 +44,8 @@ agents work on this repo at the same time, each in its own folder (git worktree)
 
 <!-- Fill in once the stack is picked. Keep it short; agents read this every session. -->
 
-- Idea:
-- Stack:
+- Idea: pool ordinary laptops (one Windows Dell, several M5 Macs) into one llama.cpp model too big for any one of them, no cloud. Full plan: `PRD.md` on `notes`.
+- Stack: Rust (all team code). llama.cpp RPC (official binaries, build 8665) supervised as child processes. gRPC via tonic + protox.
 - Run locally:
 - Test / check before shipping:
 - Deploy:
