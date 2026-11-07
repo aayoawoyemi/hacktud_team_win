@@ -1,0 +1,33 @@
+## Check-in exo 05: Nemotron on EXO (replaces community survey)
+
+**Found (most important first, max 8 bullets, each with a source):**
+- **Don't use the app v1.0.71. It is from 2026-04-23, and every Nemotron fix is newer.** The Sparkle appcast (`assets.exolabs.net/appcast.xml`) and GitHub releases both list 1.0.71 (Apr 23) as the latest app. Changes since then exist only on main:
+  - #2515 (merged 2026-11-01): Nemotron-H pipeline crash on attention-free shards, tensor-parallel garbage on quantized weights, Lightning cards;
+  - #2597: serving without the master;
+  - the Zenoh networking.
+
+  Pin a **source build of main (`a60b956`)** on all 3 Macs: Rust, uv, node, the macmon fork, `npm run build`, `uv sync`. This needs internet, so do it tonight. Source builds and the app don't join each other.
+- **Nemotron fits our 3 Macs well.** From the HF config, 94% of the weights sit in 23 MoE layers (about 1.05 GB each at 6-bit). The 23 Mamba layers (~32 MB each) and 6 attention layers are small. Because E and M alternate, EXO's "equal weight per layer" estimate is within about ±1 GB per node. With apps open (12/7/12 GB), the 6-bit build (25.7 GB) splits 20/12/20 layers and needs about **9.1 / 6.5 / 10.1 GB**. That is tight on the M3: quit apps there, or `sudo sysctl iogpu.wired_limit_mb=11264`. The 5-bit build (21.7 GB) needs about 7.7 / 5.5 / 8.5 GB and is the safe fallback. The 8-bit build (33.6 GB) only fits with apps quit (11.9 / 8.5 / 13.2). Table in `research/exo/05-nemotron-on-exo.md`.
+- **Mamba layers need nothing special in a pipeline.** Each layer's SSM state stays on its rank, and only a ~5 KB hidden vector moves per token. `fix_pipeline_shard` in `nemotron_h/sharding.py` patches the cache and mask for shards without attention or without Mamba layers (#2515). Cache memory is tiny: about 48 MB of Mamba state per sequence plus about 6 KB of KV per token (6 attention layers × 2 kv heads). A 32k-token agent context costs about 0.25 GB, which is ideal for the 7 GB M3.
+- **Open correctness risk:** PR #2264 (open since 2026-08-17) reports corrupted output for hybrid SSM models under pipeline. One cited cause, `snapshots[-2]`, is still on main (`src/exo/worker/engines/mlx/generator/generate.py` line 381). Day-1 test: compare the 3-Mac output with one-M5 output at temperature 0, using the 4-bit build and the M5's wired limit raised to about 19 GB.
+- **Tool calling works for Nemotron 3 Nano and 3.5 Lightning, but EXO has not tested it.** The API takes `tools` and role `tool` + `tool_call_id`, and returns OpenAI `tool_calls` with `finish_reason: "tool_calls"` (`src/exo/api/types/api.py` lines 225 to 251; `api/adapters/chat_completions.py` lines 258 to 271). mlx-lm (`tokenizer_utils.py` `_infer_tool_parser` line 652, rev `6b572ab1`) picks the **qwen3_coder** XML parser, because the Nemotron template renders `<tool_call>\n<function=NAME>` + `<parameter=...>`. `<tool_call>` is a single special token (id 14), which EXO's stream detector needs (`model_output_parsers.py` line 229).
+- **`tool_choice` and `parallel_tool_calls` are accepted but ignored.** They appear in the request type only, so the agent loop must cope with turns that make no tool call. A failed parse comes back as plain text (`model_output_parsers.py` line 258).
+- **The Nemotron-Nano-9B-v2 routing model has no tool parser in EXO.** It emits `<TOOLCALL>[json]</TOOLCALL>`, and mlx-lm's 15 parsers don't cover it, so its tool calls arrive as raw text. Either send agent tool turns only to the pooled 30B, or regex-parse `<TOOLCALL>` in our agent.
+- **The thinking toggle works for both 30B models.** `enable_thinking` on `/v1/chat/completions` is passed to the template for any model (`src/exo/worker/engines/mlx/utils_mlx.py` lines 623 to 627), and both templates read it. Reasoning streams as `reasoning_content`. Lightning's `reasoning_dialect = "post_last_user"` drops old reasoning from later turns, which suits a multi-step agent. Suggested pattern: thinking on for the plan step, off for tool turns.
+
+**Surprises / things that change the plan:**
+- The install plan flips from "app DMG" to "source build of main on all 3 Macs tonight". The earlier `join.sh` idea becomes: install the toolchain, clone the pinned commit (or copy a prepared checkout plus the `uv` cache over the LAN), then `uv run exo` with env vars. Copying a pre-built `.venv` between same-arch Macs might work, but that is unverified.
+- Nemotron's tiny KV/SSM cache makes long agent contexts (whole legacy code files) cheap on the pool. This is a good pitch point for the "modernize legacy code" agent.
+- Speed is unmeasured. My estimate is 15 to 25 tok/s for 6-bit and 20 to 30 for 4-bit over Ethernet. Open PR #2526 (fused Nemotron kernels, about 2.5× fewer ms on M3 Ultra) is not merged; we could cherry-pick it if decode is too slow, but that is risky.
+
+**PRD suggestions:**
+- Demo hardware / install: "EXO app v1.0.71 (2026-04-23) predates the Nemotron fixes (#2515, 2026-11-01). Run a source build of exo main pinned to `a60b956` on all 3 Macs; install tonight (needs internet: Rust, uv, node, macmon fork)."
+- Must have > Model: "Pool = Nemotron-3-Nano-30B-A3B **6-bit** (25.7 GB): 20/12/20 layers, ≈9.1/6.5/10.1 GB per Mac with apps open, M3 tight. Fallback 5-bit (21.7 GB, 7.7/5.5/8.5) or Lightning 4-bit (17.8 GB, thinking toggle). `min_nodes=3`."
+- Must have > Agent: "Tool calls only through the pooled 30B (qwen3_coder parser, OpenAI `tool_calls`). `tool_choice` is ignored. The 9B routing model has no tool parser in EXO. `enable_thinking` on for planning, off for tool turns."
+- First hour: add "correctness check: 3-Mac pipeline vs one-Mac output at temp 0 (PR #2264 risk); one tool-call round trip; measure tok/s."
+
+**Questions for Aayo:**
+1. Can each teammate install the source toolchain tonight (Xcode CLT, Homebrew, Rust, about 2 to 5 GB of disk on top of the ~26 GB model)? If any Mac can't, the fallback is the app v1.0.71 with Nemotron-3-Nano 4-bit, and I would check whether that older build handles our 3-way split.
+2. 6-bit (the strongest "bigger than any laptop" claim, M3 tight) or 5-bit (safer)? I'd default to 5-bit for the live demo and show 6-bit if day-1 memory allows.
+
+**Next section:** Section 6, outline and verdict: a one-page summary of EXO; what to reuse (exo main as the pooling engine plus its OpenAI API, routing and state), what to copy, and what to avoid; and a concrete hour-by-hour bring-up plan for 3 MacBooks with Nemotron. That plan covers the install tonight, the copy and checks on day 1, and the API calls our Spacetime control plane would make (placement, await, state polling, rebalance).

@@ -1,0 +1,27 @@
+## Check-in spacetime 01: What Spacetime is, precisely
+
+**Found (most important first, max 8 bullets, each with a source):**
+- A procedure **cannot** call EXO on the LAN or on localhost. Outbound HTTP refuses 10/8, 127/8, 172.16/12, 192.168/16 and the other RFC 6890 ranges. The check covers IP literals, redirects, and DNS results, so `mac1.local` is refused too. There is no config switch, and the check runs on both standalone and Maincloud. Present in v2.0.0 and v2.14.1. Source: `crates/core/src/host/instance_env.rs` l.1089-1099, 1184-1272 (repo commit 39bf853, Nov 6 2026). The docs do not mention it.
+- The fix is the normal Spacetime pattern. A TypeScript worker on each Mac subscribes to a `job` table, calls EXO at `localhost:52415`, and writes tokens or results back through reducers. This also gives live streaming, which procedures cannot do (next bullet).
+- Procedure HTTP has a 30 s default timeout, clamped to 180 s. There is **no streaming**: the host collects the full body before returning, and the TS `ctx.http.fetch` is synchronous and returns `SyncResponse`. HTTP inside `withTx` fails. Source: `instance_env.rs` ~l.1020, 1117-1121, consts near l.1180; `bindings-typescript/src/server/http_internal.ts` l.37-42; docs `00400-procedures.md` l.919.
+- Building blocks: tables (private unless `public: true`), reducers (transactional, no I/O), procedures (side effects, explicit `withTx`), views (subscribable, read-only), HTTP handlers (beta, routes under `/v1/database/:name/route/...`), schedule tables (fire a reducer or procedure on a time or interval), event tables (new in 2.0, transient broadcasts), subscriptions, and the `clientConnected`/`clientDisconnected` hooks (free online/offline detection for devices). Source: `docs/docs/00200-core-concepts/`.
+- Languages. Modules: TypeScript (V8), Rust, C#, C++. Client SDKs: TypeScript, Rust, C#, Unreal. **No Python SDK**: `clockworklabs/spacetimedb-python-sdk` is archived and predates the 2.0 protocol, so Python could only use the HTTP API, without subscriptions. Procedures are stable only in TypeScript; Rust, C# and C++ need unstable flags. Use TypeScript end to end. Source: `00300-language-support.md`, `gh api`, `00400-procedures.md`.
+- `spacetime start` listens on `0.0.0.0:3000` by default, so LAN clients connect with no extra flag, and it runs fully offline (`standalone/src/subcommands/start.rs` l.33-36). Auth gotcha: running `spacetime login` after publishing locally loses owner rights to the local DB, so pick one login mode on the host Mac before the first publish (`00050-troubleshooting.md`).
+- There is a built-in MCP server (unstable): `spacetime mcp` over stdio, or `POST /v1/mcp` and `/v1/database/<db>/mcp` over HTTP. Its tools are `get_schema`, `sql` and `call` (call a reducer). Our Nemotron agent can use the DB as tools with no glue code, which helps the NVIDIA track. Source: `docs/docs/00300-resources/00150-mcp.md`.
+- Release pace is about weekly (v2.11 Oct 7 to v2.14.1 Nov 4). Pin the same CLI and SDK version on every machine; a mismatch breaks codegen. Source: `gh release list`, troubleshooting doc.
+
+**Surprises / things that change the plan:**
+- The idea "Spacetime procedure calls the pool" does not work as shipped. The pool has to be reached by worker clients that subscribe to Spacetime. This still clearly counts as "majority of backend on Spacetime": all state, job queue, device registry, agent steps and dashboard data live in the module, and the workers are thin adapters.
+- Maincloud also cannot reach the pool and breaks the privacy pitch. Run standalone on one Mac (or the Dell).
+- A last-resort fallback exists: build `spacetime` from source with the IP check patched. It is a one-line change, but the Rust build time is untested (my guess is 10 to 25 min). It is not recommended.
+
+**PRD suggestions:**
+- Add to Architecture: "Spacetime standalone (`spacetime start`, port 3000) on one machine is the control plane. A TypeScript worker on each Mac subscribes to `job` rows, calls EXO at `localhost:52415`, and streams tokens back as rows through reducers. Spacetime procedures cannot call LAN or localhost addresses (hard-coded private-IP block in `instance_env.rs`), so all EXO access goes through workers."
+- Add to Risks: "Spacetime CLI/SDK version drift across laptops (weekly releases). Pin one version." and "`spacetime login` after a local publish loses the local DB."
+- Stack line: "TypeScript everywhere: Spacetime module (TS), React dashboard (TS SDK), Bun/Node worker (TS SDK). No Python SDK exists for Spacetime 2.x."
+
+**Questions for Aayo:**
+- Which machine hosts `spacetime start`: one of the Macs (it also runs EXO), or the Dell (free for this, but on Windows)? This changes the install and the worker layout in sections 2 and 4.
+- Should the Nemotron agent talk to Spacetime through the built-in MCP endpoint, or through our own TypeScript tool wrappers? MCP is less code but marked unstable.
+
+**Next section:** Section 2, architecture. Tables and reducers for devices (join code, QR to an HTTP handler join URL), heartbeats via a schedule table plus `clientDisconnected`, layer assignment, a job queue with claim/lease semantics for workers, token-chunk streaming rows, the agent's plan/step/tool-call rows, and dashboard subscriptions. I will make the worker-pulls-jobs pattern the core design, given the finding above, and size the token-streaming write rate (reducer calls per second).
