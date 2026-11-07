@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Office compute pool: how it works</title>
+<style>
+  :root{--bg:#0f1115;--panel:#171a21;--panel2:#1e222b;--ink:#e8eaf0;--mute:#9aa3b2;--line:#2a2f3a;
+        --m5:#4f9cff;--m3:#ff9f43;--m5b:#2ecc9a;--warn:#ff5d5d;--ok:#2ecc71;--net:#c08bff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  main{max-width:1050px;margin:0 auto;padding:28px 20px 80px}
+  h1{font-size:30px;margin:0 0 6px} h2{font-size:22px;margin:44px 0 6px;padding-top:10px;border-top:1px solid var(--line)}
+  h3{font-size:17px;margin:18px 0 6px}
+  p{margin:8px 0} .lead{color:var(--mute);font-size:17px;margin-bottom:18px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin:14px 0}
+  .row{display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+  .mute{color:var(--mute)} .small{font-size:13.5px}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14.5px}
+  th,td{border-bottom:1px solid var(--line);padding:8px 8px;text-align:left;vertical-align:top}
+  th{color:var(--mute);font-weight:600}
+  details{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin:10px 0}
+  summary{cursor:pointer;font-weight:600}
+  button,select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 12px;font:inherit;cursor:pointer}
+  button.on{background:#25324a;border-color:var(--m5)}
+  label.chk{display:inline-flex;gap:6px;align-items:center;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer}
+  .big{font-size:26px;font-weight:700}
+  .tag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--mute)}
+  .fit{color:var(--ok)} .nofit{color:var(--warn)}
+  svg{display:block;width:100%;height:auto}
+  .toc a{color:var(--m5);text-decoration:none;margin-right:14px;font-size:14px;white-space:nowrap}
+  a{color:var(--m5)}
+  .legend span{display:inline-flex;align-items:center;gap:6px;margin-right:14px;font-size:13.5px}
+  .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+  ol li,ul li{margin:4px 0}
+  .est{font-size:12px;color:var(--mute);font-style:italic}
+</style>
+</head>
+<body>
+<main>
+
+<h1>Office compute pool: how it works</h1>
+<p class="lead">An explainer for the HackUTD 2026 team. It covers why one laptop can't run a useful AI model, how
+several laptops can run one together, and what that costs in speed. The numbers come from the research sessions'
+sources (linked at the bottom). Anything marked <span class="est">estimate</span> is calculated, not measured.</p>
+<p class="toc">
+  <a href="#fit">1. Why one laptop isn't enough</a><a href="#token">2. What one token costs</a>
+  <a href="#modes">3. Routing vs pooling</a><a href="#split">4. Two ways to split</a>
+  <a href="#net">5. The network</a><a href="#place">6. Who gets which layers</a>
+  <a href="#plan">7. Current plan</a><a href="#words">Glossary</a><a href="#read">Reading list</a><a href="#you">What you can do</a>
+</p>
+
+<!-- 1 -->
+<h2 id="fit">1. Why one laptop isn't enough</h2>
+<p>A model has to sit in memory to run. On a Mac the GPU shares the main memory (<b>unified memory</b>), but macOS
+lets the GPU use only part of it, about two-thirds on a 16 or 24 GB Mac. Other open apps take more. Turn Macs on and
+off to see which models fit.</p>
+<div class="panel">
+  <div class="row" id="macToggles"></div>
+  <svg id="fitSvg" viewBox="0 0 1000 420"></svg>
+  <p class="small mute">Usable GPU memory per Mac <span class="est">estimate</span>: two-thirds of RAM minus 2 GB for
+  open apps. The limit can be raised with <code>sudo sysctl iogpu.wired_limit_mb=...</code>. Model sizes are for 4-bit
+  versions, which store each weight in about half a byte instead of 2 bytes.</p>
+</div>
+
+<!-- 2 -->
+<h2 id="token">2. What one token costs</h2>
+<p>The model writes one word-piece (a <b>token</b>) at a time. For every token the chip reads every weight it uses
+from memory once, so <b>memory bandwidth</b> (GB per second) sets the speed, not raw compute. That's why the RTX 3090
+"unlock" in October 2026 gave 67% more math speed but left chat speed unchanged.</p>
+<ul>
+  <li><b>Dense model</b> (e.g. Llama 70B): reads <i>all</i> weights for every token.</li>
+  <li><b>Mixture of experts, MoE</b> (e.g. Qwen3-30B-A3B): has many small "expert" blocks and uses only a few per
+  token, so it reads about 2 GB per token even when the whole model is 18 to 45 GB. That's why a MoE model is the right
+  pick to pool: it needs a lot of memory, but each token is cheap.</li>
+</ul>
+<div class="panel">
+  <div class="row">
+    <label>Model <select id="tModel"></select></label>
+    <label>Chip <select id="tChip"></select></label>
+  </div>
+  <svg id="tokSvg" viewBox="0 0 1000 150"></svg>
+  <p id="tokText"></p>
+  <p class="est">Estimate: time per token = GB read per token ÷ (bandwidth × 70%). Real runtimes reach 55 to 78% of
+  the chip's bandwidth (llama.cpp Apple Silicon benchmarks, discussion #4167).</p>
+</div>
+
+<!-- 3 -->
+<h2 id="modes">3. Routing vs pooling</h2>
+<ul>
+  <li><b>Routing</b>: every Mac holds a whole small model. Each request goes to whichever Mac is free. Three Macs serve
+  three people at once. This adds <b>throughput</b>.</li>
+  <li><b>Pooling</b>: one big model is cut into slices, and each Mac holds a slice. Every token passes through all the
+  Macs in turn. This adds <b>capacity</b>: the office can run a model no single machine can hold. Each hop between Macs
+  adds network delay, so one request is never faster than on a single machine that could fit the model.</li>
+</ul>
+<div class="panel">
+  <div class="row"><button id="bRoute" class="on">Routing</button><button id="bPool">Pooling</button>
+    <span class="mute small" id="modeNote"></span></div>
+  <svg id="modeSvg" viewBox="0 0 1000 330"></svg>
+  <div class="legend"><span><i class="sw" style="background:var(--m5)"></i>M5 24 GB</span>
+    <span><i class="sw" style="background:var(--m3)"></i>M3 16 GB</span>
+    <span><i class="sw" style="background:var(--m5b)"></i>Mac #3 24 GB</span>
+    <span><i class="sw" style="background:#fff"></i>request / token</span></div>
+</div>
+<p>The plan is to do both: route small requests, and pool one big MoE model as the demo moment. EXO already does both
+in one cluster, with the <code>model</code> field of each request picking which.</p>
+
+<!-- 4 -->
+<h2 id="split">4. Two ways to split a model</h2>
+<p>A model is a stack of <b>layers</b> (about 32 to 80). Each layer is a set of big matrices.</p>
+<table>
+  <tr><th></th><th>Pipeline: split by layers</th><th>Tensor: split inside every layer</th></tr>
+  <tr><td>Picture</td><td>Mac A does layers 1-16, Mac B does 17-32, like an assembly line</td><td>Every Mac does a
+  third of every layer, then they combine results</td></tr>
+  <tr><td>Network per token</td><td>One small message per hop: 16 KB (8B) to 32 KB (70B)</td><td>2 "all-reduce"
+  exchanges per layer: 64 round trips per token for an 8B model, 160 for 70B</td></tr>
+  <tr><td>What matters</td><td>Latency per hop (ms), not bandwidth</td><td>Very low latency on every exchange</td></tr>
+  <tr><td>Over Wi-Fi</td><td class="fit">Works. Adds 10 to 30 ms per extra Mac per token.</td><td class="nofit">Fails:
+  about 150 ms per exchange measured, so an 8B model runs at 1.15 s per token</td></tr>
+  <tr><td>Over Thunderbolt 5 + RDMA</td><td>Works</td><td class="fit">Gets faster as Macs are added (EXO: 19.5 to 31.9
+  tokens/s, 1 to 4 Mac Studios)</td></tr>
+  <tr><td>Use this weekend?</td><td class="fit"><b>Yes</b></td><td class="nofit">No. None of the 3 MacBooks has
+  Thunderbolt 5.</td></tr>
+</table>
+
+<!-- 5 -->
+<h2 id="net">5. The network</h2>
+<p>The Macs need to reach each other directly. They don't need the internet, except to download models beforehand.
+A travel router plugged into nothing still creates a private local network (a <b>LAN</b>).</p>
+<div class="panel">
+  <div class="row"><label>Network <select id="netSel">
+    <option value="15">Venue Wi-Fi (risky: may isolate devices)</option>
+    <option value="8">Our travel router, Wi-Fi</option>
+    <option value="5" selected>Our router + USB-C Ethernet</option>
+    <option value="2">Thunderbolt cables between Macs (TCP)</option></select></label>
+    <label>Model <select id="nModel"></select></label></div>
+  <svg id="netSvg" viewBox="0 0 1000 180"></svg>
+  <p id="netText"></p>
+  <p class="est">Estimate: each Mac's share of the token's reading time (split by its share of the model), plus one
+  hop delay per Mac (the token loops back to the first Mac). Hop delays include software overhead: about 5 ms per hop
+  was measured on 2.5 GbE (Geerling, Dec 2025), 10 to 30 ms on Wi-Fi. Real speed is usually lower than this ideal.</p>
+</div>
+<p><b>Venue Wi-Fi risk:</b> campus networks often block devices from seeing each other. EXO finds peers through IPv6
+multicast only and has no manual "connect to this IP" fallback today, so if the venue blocks it, EXO won't form a
+cluster. That's why the travel router is required.</p>
+
+<!-- 6 -->
+<h2 id="place">6. Who gets which layers</h2>
+<p>Giving each Mac layers in proportion to its <b>memory</b> sounds fair but can be badly slow. The slowest Mac
+holds up every token. In the prima.cpp paper, memory-share placement gave an old M1 9 of 32 layers and the pool ran at
+263 ms per token, against 15 ms on the best single device alone. Placing layers by <b>measured speed</b>, and letting
+a slow device get <b>zero layers</b>, cut time per token by up to 31x.</p>
+<div class="panel">
+  <div class="row"><button id="bMem" class="on">Split by memory</button><button id="bSpeed">Split by speed</button></div>
+  <svg id="placeSvg" viewBox="0 0 1000 170"></svg>
+  <p id="placeText" class="small"></p>
+</div>
+<p><b>What EXO does:</b> splits by free memory only, and gives every Mac in the group at least 1 layer. With an A3B
+MoE model and nothing swapping, the M3's share should cost about 4 ms per token <span class="est">estimate</span>,
+so the prima.cpp slowdown is unlikely for us. A Mac can be told to lend less memory with
+<code>OVERRIDE_MEMORY_MB</code>, which could drive a "how much memory this laptop lends" slider in the UI.</p>
+
+<!-- 7 -->
+<h2 id="plan">7. Current plan (leaning, Sat 3:50pm)</h2>
+<ol>
+  <li><b>Network:</b> a travel router with the Macs on it (Ethernet if adapters turn up). Download models before the
+  demo.</li>
+  <li><b>Engine:</b> EXO 1.0 on all 3 Macs, all on the same version. It discovers, splits, routes and serves an
+  OpenAI-style API. <b>Parallax</b> does the same plus continuous batching and has a join command and web UI; the
+  first 2 hours test both on 2 Macs and keep the faster one.</li>
+  <li><b>Routing:</b> each Mac runs a small model, and EXO sends each request to the least-busy one.</li>
+  <li><b>Pooling (wow moment):</b> <b>Qwen3.6-35B-A3B 4-bit</b> (20.4 GB, 40 layers, built into EXO), split by layers
+  across all 3 Macs with <code>min_nodes=3</code>. Fallback: Qwen3-30B-A3B 4-bit (17.6 GB). Truly-needs-all-three
+  option: Qwen3-30B-A3B 8-bit (33.3 GB, apps quit). EXO's split for the primary pick: M5 16 layers, M3 9, third Mac 15.</li>
+  <li><b>Disk:</b> EXO downloads the <i>whole</i> model to every Mac, so each needs about 20 GB free. Download once
+  at home and copy it over the LAN.</li>
+  <li><b>Our layer on top:</b> a dashboard (who's in the pool, which layers each holds, tokens/sec), the join flow
+  (stretch: scan a QR code to join), and the privacy story (nothing leaves the room).</li>
+  <li><b>Customer story:</b> old Windows/Dell office machines join through llama.cpp, not EXO, since EXO is Mac-only.</li>
+</ol>
+
+<!-- glossary -->
+<h2 id="words">Glossary</h2>
+<ul>
+  <li><b>Token</b>: a word-piece. Speeds are in tokens per second (t/s); reading speed is about 10 t/s.</li>
+  <li><b>Prefill vs decode</b>: prefill reads the prompt (fast, compute-heavy); decode writes the answer one token at a
+  time (limited by memory bandwidth).</li>
+  <li><b>Quantization (Q4, 4-bit)</b>: storing weights with fewer bits, so the model is about 4x smaller with a small
+  loss in quality.</li>
+  <li><b>Unified memory</b>: on Apple Silicon, the CPU and GPU share one pool of RAM.</li>
+  <li><b>Memory bandwidth</b>: how fast the chip can read memory. M3: 100 GB/s, M5: 153 GB/s.</li>
+  <li><b>MoE (mixture of experts)</b>: a model that uses only a few of its blocks per token. It is big to store and
+  cheap to run.</li>
+  <li><b>Pipeline / tensor parallel</b>: split by layers vs split inside each layer (section 4).</li>
+  <li><b>All-reduce</b>: every machine sends its partial result and gets back the combined result.</li>
+  <li><b>RDMA</b>: one machine writes straight into another's memory, skipping most software. On Macs this needs
+  Thunderbolt 5 and macOS 26.2+.</li>
+  <li><b>MLX / llama.cpp</b>: the two main engines that run models on Macs. EXO uses MLX.</li>
+  <li><b>EXO</b>: open-source software that pools Macs into one AI cluster. Version 1.0 is Mac-only.</li>
+</ul>
+
+<!-- reading -->
+<h2 id="read">Reading list</h2>
+<p>In order. The first four take about 45 minutes and cover everything above.</p>
+<table>
+  <tr><th>#</th><th>Read</th><th>Why</th><th>Time</th></tr>
+  <tr><td>1</td><td><a href="https://bbycroft.net/llm">LLM Visualization (Brendan Bycroft)</a></td><td>A 3D walkthrough of a model's layers and matrices. Makes "split by layers" concrete.</td><td>10 min</td></tr>
+  <tr><td>2</td><td><a href="https://huggingface.co/blog/moe">Mixture of Experts Explained (Hugging Face)</a></td><td>Why MoE models are big to store but cheap per token. Read up to "Load balancing".</td><td>10 min</td></tr>
+  <tr><td>3</td><td><a href="https://www.jeffgeerling.com/blog/2025/15-tb-vram-on-mac-studio-rdma-over-thunderbolt-5/">15 TB of VRAM on Mac Studio (Jeff Geerling, Dec 2025)</a></td><td>A real Mac cluster with EXO vs llama.cpp, with benchmarks. The closest thing to our project.</td><td>15 min</td></tr>
+  <tr><td>4</td><td><a href="https://github.com/exo-explore/exo">EXO README</a></td><td>What we're building on: install, discovery, the API.</td><td>10 min</td></tr>
+  <tr><td>5</td><td><a href="https://kipp.ly/transformer-inference-arithmetic/">Transformer Inference Arithmetic (kipply)</a></td><td>The math behind "bandwidth sets the speed". Skim the first half.</td><td>20 min</td></tr>
+  <tr><td>6</td><td><a href="https://arxiv.org/abs/2504.08791">prima.cpp paper (ICLR 2026)</a></td><td>Pooling home devices over Wi-Fi, and why speed-aware placement matters. Read the abstract and Table 4.</td><td>15 min</td></tr>
+  <tr><td>7</td><td><a href="https://github.com/GradientHQ/parallax">Parallax</a> + <a href="https://arxiv.org/abs/2509.26182">paper</a></td><td>Pooling plus routing for many users on Macs. The backup engine.</td><td>10 min</td></tr>
+  <tr><td>8</td><td><a href="https://github.com/b4rtaz/distributed-llama/discussions/147">distributed-llama: 70B on 4 Mac minis</a></td><td>Real tensor-parallel numbers over Thunderbolt and Ethernet.</td><td>5 min</td></tr>
+  <tr><td>9</td><td><a href="https://github.com/Zagitta/gpu-unlock">gpu-unlock (the RTX 3090 crack)</a></td><td>How the half-speed limit was found and removed. Read "How Ampere was unlocked".</td><td>15 min</td></tr>
+  <tr><td>10</td><td><a href="https://www.gpumode.com/news">GPU MODE news</a></td><td>The kernel competitions the kernels session is studying.</td><td>skim</td></tr>
+</table>
+<details><summary>Deeper (optional)</summary>
+<ul>
+  <li><a href="https://horace.io/brrr_intro.html">Making Deep Learning Go Brrrr From First Principles</a>: compute vs memory vs overhead.</li>
+  <li><a href="https://jax-ml.github.io/scaling-book/inference/">How to Scale Your Model: Inference</a> (Google DeepMind): the full treatment.</li>
+  <li><a href="https://github.com/ggml-org/llama.cpp/discussions/4167">llama.cpp Apple Silicon benchmark table</a>: speeds for every M-chip.</li>
+  <li><a href="https://github.com/geerlingguy/beowulf-ai-cluster/issues/17">Geerling: llama.cpp RPC on 2 Macs</a>: 171 to 93 t/s when split.</li>
+  <li><a href="https://github.com/ggml-org/llama.cpp/blob/master/tools/rpc/README.md">llama.cpp RPC README</a>: how the Windows path would work.</li>
+  <li><a href="https://developer.apple.com/documentation/technotes/tn3205-low-latency-communication-with-rdma-over-thunderbolt">Apple TN3205: RDMA over Thunderbolt</a>.</li>
+  <li><a href="https://arxiv.org/abs/2209.01188">Petals (2022)</a>: the original "BitTorrent for LLMs".</li>
+</ul></details>
+
+<!-- you -->
+<h2 id="you">What you can do (no code)</h2>
+<ol>
+  <li><b>Own the story.</b> Decide the one sentence judges remember, and keep "capacity and privacy" separate from
+  "speed" so no claim breaks under a question.</li>
+  <li><b>Run the first test now.</b> Install EXO on 2 Macs (<code>brew install --cask exo</code>) on the same network
+  and check that they see each other. That one test removes the biggest risk.</li>
+  <li><b>Network kit.</b> Travel router confirmed. Ask the hardware room for USB-C Ethernet adapters and a switch.</li>
+  <li><b>Free disk space</b> on all 3 Macs: about 25 GB each. Download the model at home tonight on one Mac, then copy it to the others.</li>
+  <li><b>Measure and record.</b> Write each Mac's tokens/sec into the PRD. Real numbers beat estimates on stage.</li>
+  <li><b>Devpost:</b> register the team by 11pm tonight. Plan the 2-minute video.</li>
+</ol>
+
+</main>
+<script>
+const MACS=[{id:'m5',name:'M5 24 GB',ram:24,bw:153,col:'var(--m5)'},
+            {id:'m3',name:'M3 16 GB',ram:16,bw:100,col:'var(--m3)'},
+            {id:'m5b',name:'Mac #3 24 GB',ram:24,bw:153,col:'var(--m5b)'}];
+const usable=m=>Math.max(0,m.ram*2/3-2);
+const MODELS=[
+ {n:'Llama 3.1 8B (dense)',gb:4.9,act:4.9},
+ {n:'gpt-oss-20b (MoE)',gb:13,act:2.0},
+ {n:'Qwen3-30B-A3B 4-bit (MoE)',gb:17.6,act:2.0},
+ {n:'Qwen3.6-35B-A3B 4-bit (MoE) ★',gb:20.4,act:2.0},
+ {n:'Qwen3-30B-A3B 8-bit (MoE)',gb:33.3,act:3.6},
+ {n:'Llama 3.3 70B (dense)',gb:42.5,act:42.5},
+ {n:'Qwen3-Next-80B-A3B (MoE)',gb:45,act:2.0}];
+const on={m5:true,m3:true,m5b:true};
+const $=id=>document.getElementById(id);
+const S='http://www.w3.org/2000/svg';
+function el(t,a,txt){const e=document.createElementNS(S,t);for(const k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;return e}
+function clear(s){while(s.firstChild)s.removeChild(s.firstChild)}
+
+// 1. fit
+function drawFit(){
+  const s=$('fitSvg');clear(s);
+  const pool=MACS.filter(m=>on[m.id]);const best=Math.max(0,...pool.map(usable));const total=pool.reduce((a,m)=>a+usable(m),0);
+  const scale=760/50, x0=220;
+  s.append(el('text',{x:10,y:22,fill:'#9aa3b2','font-size':14},'Model size (GB, 4-bit)  vs  memory available'));
+  [10,20,30,40,50].forEach(g=>{s.append(el('line',{x1:x0+g*scale,y1:34,x2:x0+g*scale,y2:380,stroke:'#2a2f3a'}));s.append(el('text',{x:x0+g*scale-10,y:400,fill:'#9aa3b2','font-size':12},g+' GB'))});
+  s.append(el('line',{x1:x0+best*scale,y1:34,x2:x0+best*scale,y2:380,stroke:'#ff9f43','stroke-dasharray':'5 4','stroke-width':2}));
+  s.append(el('text',{x:x0+best*scale+4,y:46,fill:'#ff9f43','font-size':12},'best single Mac '+best.toFixed(1)));
+  s.append(el('line',{x1:x0+total*scale,y1:34,x2:x0+total*scale,y2:380,stroke:'#2ecc71','stroke-dasharray':'5 4','stroke-width':2}));
+  s.append(el('text',{x:Math.min(x0+total*scale+4,880),y:62,fill:'#2ecc71','font-size':12},'pool '+total.toFixed(1)));
+  MODELS.forEach((m,i)=>{const y=74+i*44;
+    const one=m.gb<=best, pl=m.gb<=total;
+    s.append(el('text',{x:10,y:y+18,fill:'#e8eaf0','font-size':13.5},m.n));
+    s.append(el('rect',{x:x0,y:y,width:m.gb*scale,height:26,rx:5,fill:one?'#2b6cb0':pl?'#1f8a5b':'#7a2e2e'}));
+    s.append(el('text',{x:x0+m.gb*scale+8,y:y+18,fill:one?'#4f9cff':pl?'#2ecc71':'#ff5d5d','font-size':13},
+      m.gb+' GB · '+(one?'fits on one Mac':pl?'needs the pool':'too big even pooled')));
+  });
+}
+const tg=$('macToggles');
+MACS.forEach(m=>{const l=document.createElement('label');l.className='chk';l.innerHTML=`<input type=checkbox checked> <i class="sw" style="background:${m.col}"></i>${m.name} <span class="mute small">(~${usable(m).toFixed(1)} GB usable)</span>`;
+  l.querySelector('input').onchange=e=>{on[m.id]=e.target.checked;drawFit()};tg.append(l)});
+drawFit();
+
+// 2. token cost
+const CHIPS=[{n:'M3 (100 GB/s)',bw:100},{n:'M4 (120 GB/s)',bw:120},{n:'M5 (153 GB/s)',bw:153},{n:'M4 Pro (273 GB/s)',bw:273}];
+MODELS.forEach((m,i)=>{$('tModel').add(new Option(m.n,i));$('nModel').add(new Option(m.n,i))});
+CHIPS.forEach((c,i)=>$('tChip').add(new Option(c.n,i)));
+$('tModel').value=3;$('tChip').value=2;$('nModel').value=3;
+function drawTok(){
+  const m=MODELS[$('tModel').value],c=CHIPS[$('tChip').value];const ms=m.act/(c.bw*0.7)*1000;const tps=1000/ms;
+  const s=$('tokSvg');clear(s);
+  s.append(el('text',{x:10,y:24,fill:'#9aa3b2','font-size':13},'Stored in memory'));
+  s.append(el('rect',{x:160,y:10,width:Math.min(820,m.gb*17),height:22,rx:4,fill:'#2a3550'}));
+  s.append(el('text',{x:168,y:26,fill:'#e8eaf0','font-size':12},m.gb+' GB'));
+  s.append(el('text',{x:10,y:66,fill:'#9aa3b2','font-size':13},'Read per token'));
+  s.append(el('rect',{x:160,y:52,width:Math.max(4,Math.min(820,m.act*17)),height:22,rx:4,fill:'#4f9cff'}));
+  s.append(el('text',{x:168+Math.min(780,m.act*17),y:68,fill:'#e8eaf0','font-size':12},m.act+' GB'));
+  s.append(el('text',{x:10,y:120,fill:'#e8eaf0','font-size':22,'font-weight':700},`${ms.toFixed(0)} ms per token  ≈  ${tps.toFixed(0)} tokens/sec`));
+  const fits=m.gb<=MACS.reduce((a,x)=>Math.max(a,usable(x)),0);
+  $('tokText').innerHTML=`${m.n} on one ${c.n.split(' ')[0]}. ${m.act<m.gb?'MoE: only '+m.act+' of '+m.gb+' GB is read per token.':'Dense: every byte is read for every token.'} `+
+   (fits?'<span class="fit">Fits on one of our Macs.</span>':'<span class="nofit">Does not fit on any one of our Macs, so this speed only works if the pool holds it.</span>');
+}
+$('tModel').onchange=drawTok;$('tChip').onchange=drawTok;drawTok();
+
+// 3. routing vs pooling animation
+let mode='route';const boxes=[{x:330,y:30},{x:330,y:130},{x:330,y:230}];
+function drawModeStatic(){
+  const s=$('modeSvg');clear(s);
+  s.append(el('text',{x:20,y:24,fill:'#9aa3b2','font-size':13},'Office users'));
+  ['A','B','C'].forEach((u,i)=>{s.append(el('circle',{cx:60,cy:80+i*90,r:20,fill:'#2a2f3a'}));s.append(el('text',{x:54,y:86+i*90,fill:'#e8eaf0','font-size':15},u))});
+  s.append(el('rect',{x:150,y:120,width:110,height:70,rx:10,fill:'#241c33',stroke:'#c08bff'}));
+  s.append(el('text',{x:164,y:150,fill:'#c08bff','font-size':13},mode==='route'?'Router':'Entry'));
+  s.append(el('text',{x:164,y:168,fill:'#9aa3b2','font-size':11},mode==='route'?'picks a free Mac':'Mac 1 starts'));
+  MACS.forEach((m,i)=>{const b=boxes[i];
+    s.append(el('rect',{x:b.x,y:b.y,width:300,height:70,rx:10,fill:'#171a21',stroke:m.col,'stroke-width':2}));
+    s.append(el('text',{x:b.x+12,y:b.y+22,fill:m.col,'font-size':13,'font-weight':700},m.name));
+    if(mode==='route'){
+      s.append(el('rect',{x:b.x+12,y:b.y+34,width:276,height:24,rx:5,fill:'#2a3550'}));
+      s.append(el('text',{x:b.x+20,y:b.y+51,fill:'#e8eaf0','font-size':12},'whole small model (e.g. 8B, 4.9 GB)'));
+    } else {
+      const L=[[1,18],[19,30],[31,48]][i];
+      s.append(el('rect',{x:b.x+12,y:b.y+34,width:276,height:24,rx:5,fill:'#1f3d33'}));
+      s.append(el('text',{x:b.x+20,y:b.y+51,fill:'#e8eaf0','font-size':12},`layers ${L[0]}–${L[1]} of 48 (one slice of the big model)`));
+    }});
+  s.append(el('text',{x:700,y:24,fill:'#9aa3b2','font-size':13},mode==='route'?'3 users served at the same time':'every token visits all 3 Macs'));
+  if(mode==='pool'){[[480,100,480,130],[480,200,480,230]].forEach(c=>s.append(el('line',{x1:c[0],y1:c[1],x2:c[2],y2:c[3],stroke:'#c08bff','stroke-width':2,'stroke-dasharray':'4 3'})));
+    s.append(el('path',{d:'M630,265 C760,265 760,65 630,65',fill:'none',stroke:'#c08bff','stroke-width':2,'stroke-dasharray':'4 3'}));
+    s.append(el('text',{x:690,y:170,fill:'#c08bff','font-size':12},'next token loops back'));
+    s.append(el('text',{x:690,y:186,fill:'#9aa3b2','font-size':12},'each hop: ~16-32 KB + delay'));}
+  $('modeNote').textContent=mode==='route'?'Throughput: more Macs, more people served at once.':'Capacity: together they hold a model none can alone.';
+}
+let dots=[],t0=performance.now();
+function anim(t){
+  const s=$('modeSvg');dots.forEach(d=>d.remove());dots=[];
+  const p=((t-t0)/2200)%1;
+  if(mode==='route'){
+    [0,1,2].forEach(i=>{const ph=(p+i*0.33)%1;let x,y;const ux=80,uy=80+i*90,rx=260,ry=155,bx=boxes[i].x,by=boxes[i].y+35;
+      if(ph<0.4){const k=ph/0.4;x=ux+(rx-ux)*k;y=uy+(ry-uy)*k}else{const k=(ph-0.4)/0.6;x=rx+(bx-rx)*k;y=ry+(by-ry)*k}
+      const c=el('circle',{cx:x,cy:y,r:7,fill:'#fff'});s.append(c);dots.push(c)});
+  } else {
+    const pts=[[80,80],[260,155],[480,65],[480,165],[480,265],[700,165],[480,65]];
+    const seg=p*(pts.length-1);const i=Math.floor(seg),k=seg-i;const a=pts[i],b=pts[Math.min(i+1,pts.length-1)];
+    const c=el('circle',{cx:a[0]+(b[0]-a[0])*k,cy:a[1]+(b[1]-a[1])*k,r:8,fill:'#fff'});s.append(c);dots.push(c);
+  }
+  requestAnimationFrame(anim);
+}
+$('bRoute').onclick=()=>{mode='route';$('bRoute').classList.add('on');$('bPool').classList.remove('on');drawModeStatic()};
+$('bPool').onclick=()=>{mode='pool';$('bPool').classList.add('on');$('bRoute').classList.remove('on');drawModeStatic()};
+drawModeStatic();requestAnimationFrame(anim);
+
+// 5. network
+function drawNet(){
+  const hop=+$('netSel').value,m=MODELS[$('nModel').value];
+  const pool=MACS;const tot=pool.reduce((a,x)=>a+usable(x),0);
+  // pipeline: each mac reads its share (by memory) of active bytes
+  let comp=0;pool.forEach(x=>{comp+=(m.act*usable(x)/tot)/(x.bw*0.7)*1000});
+  const net=hop*pool.length;const ms=comp+net;const fits=m.gb<=tot;
+  const s=$('netSvg');clear(s);const sc=Math.min(8,820/ms);
+  s.append(el('text',{x:10,y:24,fill:'#9aa3b2','font-size':13},'One token across 3 Macs (pipeline):'));
+  let x=10;pool.forEach((mc,i)=>{const w=(m.act*usable(mc)/tot)/(mc.bw*0.7)*1000*sc;
+    s.append(el('rect',{x:x,y:40,width:Math.max(2,w),height:34,fill:mc.col,rx:3}));x+=w;
+    s.append(el('rect',{x:x,y:40,width:hop*sc,height:34,fill:'#c08bff',opacity:.55,rx:3}));x+=hop*sc;});
+  s.append(el('text',{x:10,y:100,fill:'#9aa3b2','font-size':12},`colored = Macs reading weights (${comp.toFixed(0)} ms)   ·   purple = network hops (${net} ms)`));
+  s.append(el('text',{x:10,y:145,fill:fits?'#e8eaf0':'#ff5d5d','font-size':22,'font-weight':700},
+    fits?`≈ ${ms.toFixed(0)} ms per token  ≈  ${(1000/ms).toFixed(1)} tokens/sec (ideal)`:`${m.n} does not fit even in the pool`));
+  $('netText').innerHTML=fits?(m.act<5?'For a MoE model, network hops are a big share of each token, so the network choice matters a lot.':'For a dense model, reading weights dominates and the network matters less.'):'';
+}
+$('netSel').onchange=drawNet;$('nModel').onchange=drawNet;drawNet();
+
+// 6. placement (prima.cpp example, Llama 3 8B, 32 layers)
+let pmode='mem';
+function drawPlace(){
+  const s=$('placeSvg');clear(s);
+  const devs=[{n:'Fast device',c:'#4f9cff'},{n:'Old M1',c:'#ff9f43'},{n:'Other devices',c:'#9aa3b2'}];
+  const L=pmode==='mem'?[14,9,9]:[32,0,0];
+  let x=20;s.append(el('text',{x:20,y:22,fill:'#9aa3b2','font-size':13},'32 layers of Llama 3 8B'));
+  L.forEach((n,i)=>{for(let j=0;j<n;j++){s.append(el('rect',{x:x,y:36,width:26,height:40,rx:3,fill:devs[i].c}));x+=29}});
+  let lx=20;devs.forEach((d,i)=>{s.append(el('rect',{x:lx,y:92,width:12,height:12,fill:d.c,rx:2}));s.append(el('text',{x:lx+18,y:103,fill:'#e8eaf0','font-size':12},`${d.n}: ${L[i]} layers`));lx+=230});
+  s.append(el('text',{x:20,y:150,fill:pmode==='mem'?'#ff5d5d':'#2ecc71','font-size':22,'font-weight':700},pmode==='mem'?'263 ms per token':'15 ms per token'));
+  $('placeText').textContent=pmode==='mem'?'Split by memory (EXO-style in the prima.cpp test): the slow M1 holds 9 layers, and every token waits on it, plus extra hops.':
+   'Split by speed: here the best choice for a small model is one fast device with all layers and zero for the rest. Bigger models get spread, weighted by measured speed. Source: prima.cpp paper, Table 4 (illustrative layer counts except the M1\u2019s 9).';
+}
+$('bMem').onclick=()=>{pmode='mem';$('bMem').classList.add('on');$('bSpeed').classList.remove('on');drawPlace()};
+$('bSpeed').onclick=()=>{pmode='speed';$('bSpeed').classList.add('on');$('bMem').classList.remove('on');drawPlace()};
+drawPlace();
+</script>
+</body>
+</html>
