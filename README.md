@@ -22,7 +22,7 @@ bash scripts/setup
 | `git sync` | Puts your work on top of the latest `main`, lists what teammates shipped, and warns if another branch touches your files |
 | `git ship "what you did"` | Commits everything, syncs, opens a pull request and merges it into `main` |
 | `git board` | Open tasks and owners, branches in progress, recent merges, file overlap warnings |
-| `git done` | Task finished: closes the issue, deletes the folder and branch |
+| `git done` | Task finished: closes the issue, deletes the folder and branch. `git done 12` does it for #12 from anywhere. |
 
 ## The loop
 

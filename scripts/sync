@@ -9,12 +9,6 @@ git fetch -q --prune origin
 old=$(git rev-parse -q --verify refs/worktree/hack-last-main || true)
 new=$(git rev-parse origin/main)
 
-if ! git rebase -q --autostash origin/main; then
-  warn "Conflict while syncing. Files in conflict:"
-  git diff --name-only --diff-filter=U | sed 's/^/    /' >&2
-  die "Fix them (or ask your agent: \"resolve the rebase conflicts, keep both sides' intent\"), then: git add <files> && git rebase --continue"
-fi
-
 if [ -n "$old" ] && [ "$old" != "$new" ]; then
   say "New on main since your last sync:"
   git --no-pager log --format='  %h %s (%an)' "$old..$new"
@@ -25,11 +19,18 @@ if [ -n "$old" ] && [ "$old" != "$new" ]; then
 else
   ok "Already up to date with main."
 fi
+
+if ! git rebase -q --autostash origin/main >/dev/null 2>&1; then
+  mark_seen
+  warn "Conflict while syncing. Files in conflict:"
+  git diff --name-only --diff-filter=U | sed 's/^/    /' >&2
+  die "Fix them (or ask your agent: \"resolve the rebase conflicts, keep both sides' intent\"), then: git add <files> && git rebase --continue"
+fi
 mark_seen
 
 # Publish committed work-in-progress so teammates' overlap checks can see it.
 if [ "$b" != main ] && [ "$(git rev-list --count origin/main..HEAD)" -gt 0 ]; then
-  git push -q --force-with-lease -u origin "$b" 2>/dev/null || warn "Could not push $b (offline?)."
+  git push -q --force-with-lease -u origin "$b" >/dev/null 2>&1 || warn "Could not push $b (offline?)."
 fi
 
 overlap_check

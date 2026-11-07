@@ -27,7 +27,7 @@ agents work on this repo at the same time, each in its own folder (git worktree)
 - If `git sync` or `git ship` reports a conflict: resolve it keeping the intent of both sides, `git add` the files,
   `git rebase --continue`, then ship again. Ask the human if the two sides really disagree.
 - If `git sync` prints a heads-up about another branch changing the same files, tell the human before continuing.
-- When the task is finished, tell the human. They run `git done`.
+- When the task is finished, tell the human. They run `git done` (or `git done <issue-number>`).
 
 ## Project
 

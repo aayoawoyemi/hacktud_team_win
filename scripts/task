@@ -21,7 +21,8 @@ u=$(me)
 slug=$(slugify "$title")
 branch="$u/$num-$slug"
 root=$(main_root)
-wt="$(dirname "$root")/$(basename "$root")-wt/$num-$slug"
+cleanup_stale
+wt="$(wt_dir)/$num-$slug"
 
 if [ -d "$wt" ]; then
   say "Folder already exists, reusing it."

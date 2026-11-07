@@ -58,5 +58,21 @@ overlap_check() {
   return 0
 }
 
+# Task folders live next to the repo in <repo>-wt/.
+wt_dir() { local r; r=$(main_root); printf '%s' "$(dirname "$r")/$(basename "$r")-wt"; }
+
+# Delete task folders that git no longer tracks (Windows can't delete a folder a shell is still in).
+cleanup_stale() {
+  local d listed
+  git worktree prune
+  listed=$(git worktree list --porcelain | sed -n 's/^worktree //p')
+  for d in "$(wt_dir)"/*/; do
+    [ -d "$d" ] || continue
+    d=${d%/}
+    printf '%s\n' "$listed" | grep -qxF "$d" || rm -rf "$d" 2>/dev/null || true
+  done
+  return 0
+}
+
 # Remember which main this worktree last saw (refs/worktree/* is per-worktree).
 mark_seen() { git update-ref refs/worktree/hack-last-main "$(git rev-parse origin/main)"; }

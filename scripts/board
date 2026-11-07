@@ -3,6 +3,7 @@
 source "$(dirname "$0")/_lib.sh"
 need_gh
 git fetch -q --prune origin
+cleanup_stale
 
 say "== Open tasks =="
 gh issue list --state open -L 40 --json number,title,assignees,labels \

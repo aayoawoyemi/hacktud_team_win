@@ -1,20 +1,34 @@
 #!/usr/bin/env bash
-# git done            close this task's issue and delete its folder and branch
-# git done --force    same, throwing away unshipped work
+# git done             (inside a task folder) close its issue, delete the folder and branch
+# git done 12          same for task #12, from anywhere
+# git done --force     also throw away unshipped work
 source "$(dirname "$0")/_lib.sh"
 need_gh
 
-force=0; [ "${1:-}" = "--force" ] && force=1
-b=$(current_branch)
-here=$(git rev-parse --show-toplevel)
+force=0; num=""
+for a in "$@"; do
+  case "$a" in
+    --force) force=1 ;;
+    [0-9]*) num=$a ;;
+    *) die "Usage: git done [issue-number] [--force]" ;;
+  esac
+done
+
 root=$(main_root)
-[ "$here" != "$root" ] || die "Run git done inside a task folder, not the main checkout."
-num=$(issue_of_branch "$b")
+if [ -n "$num" ]; then
+  wt=$(git worktree list --porcelain | sed -n 's/^worktree //p' | grep -E "/$num-[^/]*$" | head -1 || true)
+  [ -n "$wt" ] || die "No task folder for #$num. (git board lists them.)"
+else
+  wt=$(git rev-parse --show-toplevel)
+  [ "$wt" != "$root" ] || die "Run git done inside a task folder, or: git done <issue-number>"
+fi
+b=$(git -C "$wt" branch --show-current)
+[ -n "$num" ] || num=$(issue_of_branch "$b")
 
 git fetch -q --prune origin
 if [ "$force" = 0 ]; then
-  [ -z "$(git status --porcelain)" ] || die "Unshipped changes here. Run git ship first (or git done --force to discard them)."
-  [ "$(git rev-list --count origin/main..HEAD)" = 0 ] || die "Unshipped commits here. Run git ship first (or git done --force)."
+  [ -z "$(git -C "$wt" status --porcelain)" ] || die "Unshipped changes in $wt. Run git ship first (or add --force to discard them)."
+  [ "$(git -C "$wt" rev-list --count origin/main..HEAD)" = 0 ] || die "Unshipped commits in $wt. Run git ship first (or add --force)."
 fi
 
 if [ -n "$num" ]; then
@@ -23,10 +37,14 @@ if [ -n "$num" ]; then
 fi
 
 cd "$root"
-git worktree remove --force "$here"
-git branch -D "$b" >/dev/null 2>&1 || true
-git push -q origin --delete "$b" >/dev/null 2>&1 || true
+git worktree remove --force "$wt" 2>/dev/null || true
 git worktree prune
+[ -n "$b" ] && git branch -D "$b" >/dev/null 2>&1 || true
+[ -n "$b" ] && git push -q origin --delete "$b" >/dev/null 2>&1 || true
+cleanup_stale
 
-ok "Closed${num:+ #$num} and removed $here"
-echo "Go back to the main folder: cd \"$root\""
+ok "Closed${num:+ #$num}."
+if [ -d "$wt" ]; then
+  echo "This terminal is still inside the folder, so Windows kept it. Run: cd \"$root\""
+  echo "(The leftover folder is deleted automatically the next time anyone runs git task, git done or git board.)"
+fi
