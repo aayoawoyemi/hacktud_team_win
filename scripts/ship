@@ -35,7 +35,7 @@ if [ -z "$pr" ]; then
   pr=$(gh pr list --head "$b" --state open --json number -q '.[0].number')
 fi
 
-if ! gh pr merge "$pr" --squash >/dev/null; then
+if ! gh pr merge "$pr" --squash --subject "$msg (#$pr)" >/dev/null; then
   die "GitHub could not merge PR #$pr (probably main moved). Run git sync, then git ship again."
 fi
 
