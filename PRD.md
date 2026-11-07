@@ -119,7 +119,7 @@ The model is split by layers. Each machine holds a block of the model's layers i
 | O-04 | How agents and the coordinator find each other | static list of addresses in config; coordinator address given to each agent, agents register; mDNS (campus Wi-Fi may block multicast); UDP broadcast | WP-3, WP-4 | kickoff |
 | O-05 | Network for build and demo | CometNet; phone hotspot; travel router; wired switch; Tailscale (setup needs Tailscale's online service, which conflicts with D-02 during the demo) | WP-1, WP-10 | after the reachability test, about 5:00pm |
 | O-06 | Which machine is main (holds model files, runs llama-server and the coordinator)? | any machine. Criteria: free disk, memory, stays plugged in, owner awake | WP-1, WP-11 | kickoff |
-| O-07 | Split strategy | llama.cpp default (proportional to each device's free memory); a computed `--tensor-split` from one of the WP-5 strategies | WP-4, WP-5 | Checkpoint B, by measurement |
+| O-07 | Split strategy | llama.cpp default (proportional to each device's free memory); a computed `--tensor-split` from one of the WP-5 strategies. Evidence for splitting by speed is the §4.4 math (the slowest device dominates); it matters most for the Dell, little between the Macs | WP-4, WP-5 | Checkpoint B, by measurement |
 | O-08 | Relay layer | 6A: llama.cpp's own relay, telemetry from its debug logs; 6B: a Rust TCP proxy in the data path; both | WP-3, WP-6, WP-7 | Checkpoint A |
 | O-09 | Models for Part 1 and Part 2: file, quantization. Must Part 1 exceed any one machine? | candidates after hardware intake; sizing math and download times in §4.2 and §4.4 | WP-5, WP-11, WP-13 | 5:00pm for downloads, final at Checkpoint B |
 | O-10 | How pool status is shown during the demo | nothing beyond the chat output; a CLI printing status; a terminal UI; anything reading the WP-7 status API | WP-7, WP-13 | Checkpoint B |
@@ -150,6 +150,8 @@ Kickoff must settle: O-01, O-02, O-03, O-04, O-06, O-14, O-16, O-17, O-19, O-24,
 | O-01 | Option A: Rust supervises the official llama.cpp binaries as child processes | Aayo | Sat 5:30pm |
 | O-03 | Control-plane transport is gRPC with tonic; `.proto` files are the contract; `protox` compiles them so no machine needs `protoc` | Aayo | Sat 5:30pm |
 | O-14 | Pin llama.cpp build 8665 on every machine (matches the Dell) | Aayo | Sat 5:30pm |
+| D-12 | No Nemotron for now. Revisit only if time allows (NVIDIA track). Nemotron-specific work (KV formula for hybrid Mamba layers, tokenizer fix, newer llama.cpp) is parked | Aayo | Sat 6:00pm |
+| O-11 (partial) | Demo shows machines joining the pool, never a machine leaving mid-answer (a drop fails the request on every tool) | Aayo | Sat 6:00pm |
 | O-19 | Owners: WP-11 + WP-1 setup on the main Mac = model person; WP-5 (R5.1 to R5.6, R5.13 to R5.15) = Rust coder; WP-12 + WP-2 = Aayo's agent; WP-1 multi-laptop test and WP-10 = open | Aayo | Sat 5:30pm |
 
 ---
@@ -206,6 +208,12 @@ llama-server (runs on main):
 - Endpoints: `/health`, `/v1/chat/completions` (OpenAI-style, streaming), `/v1/models`, `/metrics` (with `--metrics`), `/slots`. VERIFY on build 8665: `/health` status codes while loading, metric names, and whether the final stream chunk carries usage and timings.
 - Watch out: `-c` means cache on rpc-server and context size on llama-server.
 
+More RPC facts from the llama.cpp source (current master; VERIFY on build 8665):
+- With `-c`, main re-hashes every tensor over 10 MiB at each load, so a restart still costs time on main (WP-4, WP-9).
+- One rpc-server serves one client at a time: a helper can belong to only one llama-server.
+- No authentication on the RPC port.
+- `-ts` order is RPC devices first, then main's local devices.
+
 Model files and versions:
 - Only main needs the model file. llama-server sends each helper its share of the weights at load time; with `-c`, helpers cache it. [README]
 - Every machine should run the same llama.cpp release. The RPC handshake carries a protocol version (v3.6.1 here). VERIFY what a mismatch looks like (WP-1).
@@ -228,7 +236,7 @@ Model files and versions:
 | llama.cpp RPC | yes, by layers | yes | yes | the engine (D-04) |
 | distributed-llama | yes; all machines work on every token (tensor parallelism) | yes, built from source | yes | runs on 1, 2, 4, ... machines only; q40 models in its own format; WP-S2 |
 | prima.cpp | yes, by layers, with a scheduler for mixed devices | no ("future update") | yes | research system built on llama.cpp; reports up to 80% speedup from speculative decoding |
-| Exo | yes | no (Windows listed as "longer term") | yes, main target | about 48K GitHub stars; the closest product |
+| Exo | yes | no (Windows listed as "longer term") | yes, main target | about 48K GitHub stars; the closest product. v1.0 is Mac-only and MLX-only, finds machines by multicast, has no auth, places layers by memory only, and copies the whole model to every machine. Differences here: Windows and Mac, speed-aware split, only main stores the model |
 | Ray (+ vLLM) | Ray schedules jobs; splitting needs an engine such as vLLM | multi-machine clusters supported only on Linux | same | ROADMAP (D-10). ShadowRay (CVE-2023-48022): attackers took over Ray clusters through its unauthenticated job API |
 
 ### 4.6 Fixed event times (CT)
@@ -280,7 +288,7 @@ HELPER A ...............  HELPER B ...............  |
 3. The state goes to helper B, then back to main for the output layer and the choice of token.
 4. The next token starts again at step 1.
 
-VERIFY in WP-1 and WP-6: in llama.cpp RPC every connection runs between main and one helper (a star). Copies between two helpers probably pass through main. Measure it.
+CONFIRMED in llama.cpp source (`ggml-rpc.cpp`, current master, research worker cppcode-01): every connection runs between main and one helper (a star). All traffic between helpers passes through main, with one blocking round trip per helper per token. VERIFY on build 8665 in WP-1.
 
 ### 5.5 Startup sequence (target behavior with the Rust tooling)
 1. Agents start on every machine, probe hardware (WP-3) and register with the coordinator (O-04).
@@ -934,7 +942,7 @@ built with Clang 19.1.5 for Windows x86_64
     - R5.4 MUST handle split GGUF files (`*-00001-of-0000N.gguf`) if a chosen model comes split. VERIFY the metadata key names.
     - R5.5 SHOULD warn when the KV formula doesn't apply (per-layer KV head counts, sliding-window or hybrid attention).
   - Usable memory
-    - R5.6 MUST compute usable bytes per device: free memory (device list or rpc-server banner) − reserve (config) − KV share − compute-buffer estimate (calibrated from WP-1 logs). MUST NOT count system RAM twice for unified-memory devices.
+    - R5.6 MUST compute usable bytes per device: free memory (device list or rpc-server banner) − reserve (config) − KV share − compute-buffer estimate (calibrated from WP-1 logs). MUST NOT count system RAM twice for unified-memory devices. MUST cap each Mac at its Metal GPU budget (about 2/3 to 3/4 of RAM; a 16 GB Mac gets about 10.7 GB). Don't raise the limit on personal Macs.
   - Strategies (O-07 picks one; build in this order as time allows)
     - R5.7 S0 `llama_default`: no `-ts`. Predict llama.cpp's proportional placement and record it.
     - R5.8 S1 `proportional_usable`: `-ts` proportional to usable bytes.
