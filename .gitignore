@@ -10,3 +10,10 @@ build/
 .DS_Store
 exo-src/
 research/logs/
+
+# Rust build output (WP-12). Cargo.lock IS committed: this workspace builds binaries, and one lockfile
+# keeps every machine on the same dependency versions.
+target/
+# Model files never go in git (PRD §5.7, WP-11): they are gigabytes.
+models/
+*.gguf

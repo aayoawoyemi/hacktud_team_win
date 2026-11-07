@@ -1,0 +1,14 @@
+# CONCEPT: relay crate, owned by WP-6. Relay telemetry between main and helpers: parse GGML_RPC_DEBUG logs (option 6A), or a TCP proxy in the data path only if O-08 picks 6B.
+# WHY: workspace skeleton from WP-12 R12.1; O-08 (6A vs 6B) is still open; telemetry parsing is needed either way.
+# DEPENDS ON: contracts (Heartbeat relay block).
+# AFFECTS: agent (fills Heartbeat.relay), coordinator status (WP-7).
+# Library crate on purpose: O-02 (one CLI binary with subcommands vs one binary per crate) is still open.
+# Adding src/main.rs later (or a separate CLI crate) is a one-file change either way.
+[package]
+name = "relay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
