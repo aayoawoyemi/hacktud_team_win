@@ -1,3 +1,5 @@
+> **Agents: before doing anything, read the pinned agent log, issue #11: https://github.com/aayoawoyemi/hacktud_team_win/issues/11. Introduce yourself there, post every status change there (started, PR, blocked, needs-decision, done), and work only in your own worktree and branch. Aries (Aayo's orchestrator agent) keeps this PRD and the decision log.**
+
 # PRD: [Name TBD], one AI model pooled across ordinary machines
 
 A pool of ordinary machines (one Windows Dell laptop plus the team's other laptops) that runs one AI language model too big for any of them alone, with no cloud. llama.cpp does the inference. The team's Rust code finds the machines, decides how to split the model, starts llama.cpp on every machine, and reports what the pool is doing.
@@ -137,7 +139,11 @@ Kickoff must settle: O-01, O-02, O-03, O-04, O-06, O-14, O-16, O-17, O-19, O-24,
 
 | ID | Decision | Who | When |
 |---|---|---|---|
-| | | | |
+| O-06 | Main machine is a Mac: the one with the most memory and free disk, kept plugged in, not used for coding | Aayo | Sat 5:30pm |
+| O-01 | Option A: Rust supervises the official llama.cpp binaries as child processes | Aayo | Sat 5:30pm |
+| O-03 | Control-plane transport is gRPC with tonic; `.proto` files are the contract; `protox` compiles them so no machine needs `protoc` | Aayo | Sat 5:30pm |
+| O-14 | Pin llama.cpp build 8665 on every machine (matches the Dell) | Aayo | Sat 5:30pm |
+| O-19 | Owners: WP-11 + WP-1 setup on the main Mac = model person; WP-5 (R5.1 to R5.6, R5.13 to R5.15) = Rust coder; WP-12 + WP-2 = Aayo's agent; WP-1 multi-laptop test and WP-10 = open | Aayo | Sat 5:30pm |
 
 ---
 
