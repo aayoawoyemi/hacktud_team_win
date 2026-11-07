@@ -1,11 +1,9 @@
-# CONCEPT: hourly no-AI digest of the agent log, posted as a comment on issue #11.
+# CONCEPT: manual-only no-AI digest of the agent log, posted as a comment on issue #11.
 # WHY: agents work async in isolated worktrees; one factual roll-up keeps #11 scannable (Aries orchestration rule).
 # DEPENDS ON: issue #11 comment format "[agent] [WP-n] [status] ...", gh CLI on the GitHub runner, GITHUB_TOKEN.
 # AFFECTS: issue #11 only. Change ISSUE below if the log moves.
 name: agent-log-digest
 on:
-  schedule:
-    - cron: "7 * * * *"   # hourly at :07 UTC. GitHub may delay scheduled runs by several minutes.
   workflow_dispatch: {}   # manual run: Actions tab -> agent-log-digest -> Run workflow, or `gh workflow run agent-log-digest`
 permissions:
   issues: write

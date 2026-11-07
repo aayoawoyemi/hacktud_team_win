@@ -14,6 +14,15 @@ agents work on this repo at the same time, each in its own folder (git worktree)
 - Changed a concept (a contract, a dependency, an assumption)? Post `concept-change` in #11.
 - Ship messages and commits include `Why:` and `Affects:`.
 
+## Review and merge (Rust code)
+
+- None of the humans can verify Rust by eye, so Aries (Aayo's orchestrator agent) is the integrator.
+- For Rust code: push your branch and open a PR (`gh pr create`). Don't merge it yourself.
+  Post `[agent] [WP-n] [ready-for-review] PR #n` in #11.
+- Aries builds and tests every open PR (`cargo build`, `cargo test`), checks it against the contracts, comments on the PR,
+  merges the ones that pass and posts a "state of the world" in #11. Fix what Aries flags, then post `ready-for-review` again.
+- Docs, notes and fixtures can still go through `git ship`.
+
 ## Before you write code
 
 1. Run `git sync`. It puts this branch on top of the latest `main` and lists what teammates shipped.
