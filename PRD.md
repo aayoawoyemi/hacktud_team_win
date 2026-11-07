@@ -152,6 +152,10 @@ Kickoff must settle: O-01, O-02, O-03, O-04, O-06, O-14, O-16, O-17, O-19, O-24,
 | O-01 | Option A: Rust supervises the official llama.cpp binaries as child processes | Aayo | Sat 5:30pm |
 | O-03 | Control-plane transport is gRPC with tonic; `.proto` files are the contract; `protox` compiles them so no machine needs `protoc` | Aayo | Sat 5:30pm |
 | O-14 | Pin llama.cpp build 8665 on every machine (matches the Dell) | Aayo | Sat 5:30pm |
+| O-02 | One CLI with subcommands (`pool agent`, `pool coordinator`, `pool bench`, ...) | Aayo | Sat 6:00pm |
+| O-24 | Config: one TOML file per role, CLI flags override | Aayo | Sat 6:00pm |
+| O-17 | Dissolved: agents don't listen on a port (they talk through SpacetimeDB). Ports: SpacetimeDB on main (VERIFY default), rpc-server 50052 | Aries, Aayo ok | Sat 6:00pm |
+| O-14b | Rust toolchain 1.99.1 + wasm32-unknown-unknown target (SpacetimeDB 2.12+ needs 1.97+) | Aries, Aayo ok | Sat 6:00pm |
 | D-13 | **SpacetimeDB is the control plane** (replaces gRPC; O-03 changed). A SpacetimeDB module written in Rust holds the shared state as tables: `node` (identity, capabilities, memory), `heartbeat`, `command` (coordinator to agent; each agent subscribes to its own rows, acts, writes the result back), `event` (full history: which machine stopped what, when), `split_plan`, `cluster_status`. The Rust CLI subscribes for live status, so there is no custom status API or frontend. The server runs locally on the main Mac (no cloud, D-02 holds). Agents keep doing all local work (start/stop llama.cpp), because SpacetimeDB code can't reach the LAN. llama.cpp RPC stays the data plane. Enters the Spacetime track. VERIFY: self-hosted server on macOS, Rust client SDK version, whether a local web view exists | Aayo | Sat 6:10pm |
 | D-12 | No Nemotron for now. Revisit only if time allows (NVIDIA track). Nemotron-specific work (KV formula for hybrid Mamba layers, tokenizer fix, newer llama.cpp) is parked | Aayo | Sat 6:00pm |
 | O-11 (partial) | Demo shows machines joining the pool, never a machine leaving mid-answer (a drop fails the request on every tool) | Aayo | Sat 6:00pm |
