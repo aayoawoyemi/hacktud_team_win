@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# git sync    put your work on top of the latest main, and show what changed
+source "$(dirname "$0")/_lib.sh"
+
+b=$(current_branch)
+[ -n "$b" ] || die "Not on a branch. If a rebase is in progress: fix files, git add them, git rebase --continue (or git rebase --abort)."
+
+git fetch -q --prune origin
+old=$(git rev-parse -q --verify refs/worktree/hack-last-main || true)
+new=$(git rev-parse origin/main)
+
+if ! git rebase -q --autostash origin/main; then
+  warn "Conflict while syncing. Files in conflict:"
+  git diff --name-only --diff-filter=U | sed 's/^/    /' >&2
+  die "Fix them (or ask your agent: \"resolve the rebase conflicts, keep both sides' intent\"), then: git add <files> && git rebase --continue"
+fi
+
+if [ -n "$old" ] && [ "$old" != "$new" ]; then
+  say "New on main since your last sync:"
+  git --no-pager log --format='  %h %s (%an)' "$old..$new"
+  if git diff --name-only "$old" "$new" | grep -qx 'CONTRACTS.md'; then
+    warn "CONTRACTS.md changed. Re-read it before writing more code:"
+    git --no-pager diff "$old" "$new" -- CONTRACTS.md
+  fi
+else
+  ok "Already up to date with main."
+fi
+mark_seen
+
+# Publish committed work-in-progress so teammates' overlap checks can see it.
+if [ "$b" != main ] && [ "$(git rev-list --count origin/main..HEAD)" -gt 0 ]; then
+  git push -q --force-with-lease -u origin "$b" 2>/dev/null || warn "Could not push $b (offline?)."
+fi
+
+overlap_check

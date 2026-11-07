@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# git task 12              start GitHub issue #12 in its own folder
+# git task "Add login"     create an issue, assign it to you, and start it
+source "$(dirname "$0")/_lib.sh"
+need_gh
+[ $# -ge 1 ] || die 'Usage: git task <issue-number>   or   git task "short description"'
+
+git fetch -q --prune origin
+
+if [[ "$1" =~ ^[0-9]+$ ]]; then
+  num=$1
+  title=$(gh issue view "$num" --json title -q .title) || die "No issue #$num"
+else
+  title="$*"
+  url=$(gh issue create --title "$title" --body "${TASK_BODY:-Started with git task. Edit this to say what done looks like and which files/folders this task owns.}" --assignee @me)
+  num=${url##*/}
+fi
+gh issue edit "$num" --add-assignee @me --add-label in-progress >/dev/null 2>&1 || warn "Could not assign/label #$num (run git setup once to create the label)."
+
+u=$(me)
+slug=$(slugify "$title")
+branch="$u/$num-$slug"
+root=$(main_root)
+wt="$(dirname "$root")/$(basename "$root")-wt/$num-$slug"
+
+if [ -d "$wt" ]; then
+  say "Folder already exists, reusing it."
+elif git show-ref --verify --quiet "refs/heads/$branch"; then
+  git worktree add -q "$wt" "$branch"
+elif git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+  git worktree add -q -b "$branch" "$wt" "origin/$branch"
+else
+  git worktree add -q --no-track -b "$branch" "$wt" origin/main
+fi
+
+# Local secrets are not in git; copy them into the new folder.
+for f in "$root"/.env "$root"/.env.*; do
+  [ -f "$f" ] && [ ! -e "$wt/$(basename "$f")" ] && cp "$f" "$wt/"
+done
+(cd "$wt" && mark_seen)
+
+ok "Ready: #$num $title"
+echo "  folder: $wt"
+echo "  branch: $branch"
+echo
+say "Next:"
+echo "  cd \"$wt\""
+echo "  claude \"Do issue #$num. Read it with: gh issue view $num. Follow AGENTS.md.\""
+echo
+echo "  (any agent works: codex, cursor, pi... they all read AGENTS.md)"

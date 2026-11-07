@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# git board   who is doing what, what just shipped, and file overlaps with your branch
+source "$(dirname "$0")/_lib.sh"
+need_gh
+git fetch -q --prune origin
+
+say "== Open tasks =="
+gh issue list --state open -L 40 --json number,title,assignees,labels \
+  --template '{{range .}}{{printf "  #%-4v" .number}}{{.title}}{{range .assignees}}  @{{.login}}{{end}}{{range .labels}}  [{{.name}}]{{end}}{{"\n"}}{{end}}'
+
+say "== Branches in flight =="
+for rb in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin); do
+  case "$rb" in origin|origin/HEAD|origin/main) continue ;; esac
+  n=$(git diff --name-only origin/main..."$rb" | wc -l | tr -d ' ')
+  echo "  ${rb#origin/}  ($n files)"
+done
+
+say "== Last shipped to main =="
+git --no-pager log --format='  %h %s (%an, %cr)' -8 origin/main
+
+say "== Your task folders =="
+git worktree list | sed 's/^/  /'
+
+overlap_check

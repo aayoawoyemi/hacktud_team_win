@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# git ship "what you did"   commit everything, sync, open a PR, merge it into main
+source "$(dirname "$0")/_lib.sh"
+need_gh
+
+b=$(current_branch)
+[ -n "$b" ] || die "Not on a branch. Finish the rebase first (git rebase --continue)."
+[ "$b" != main ] || die 'You are on main. Start a task first: git task "what you are doing"'
+num=$(issue_of_branch "$b")
+
+msg="$*"
+if [ -z "$msg" ]; then
+  msg=$( [ -n "$num" ] && gh issue view "$num" --json title -q .title 2>/dev/null || echo "Update from $b")
+fi
+
+git add -A
+git diff --cached --quiet || git commit -q -m "$msg"
+
+git fetch -q --prune origin
+[ "$(git rev-list --count origin/main..HEAD)" -gt 0 ] || die "Nothing to ship: no changes compared to main."
+
+if ! git rebase -q origin/main; then
+  warn "Conflict with main. Files in conflict:"
+  git diff --name-only --diff-filter=U | sed 's/^/    /' >&2
+  die "Fix them, git add <files>, git rebase --continue, then git ship again."
+fi
+
+git push -q --force-with-lease -u origin "$b"
+
+pr=$(gh pr list --head "$b" --state open --json number -q '.[0].number')
+if [ -z "$pr" ]; then
+  body="Shipped with git ship."
+  [ -n "$num" ] && body="Part of #$num. $body"
+  gh pr create -B main -H "$b" -t "$msg" -b "$body" >/dev/null
+  pr=$(gh pr list --head "$b" --state open --json number -q '.[0].number')
+fi
+
+if ! gh pr merge "$pr" --squash >/dev/null; then
+  die "GitHub could not merge PR #$pr (probably main moved). Run git sync, then git ship again."
+fi
+
+# Main now contains this work. Delete the remote branch (so it stops showing as "in flight")
+# and reset the local branch to main so the next ship starts clean.
+git push -q origin --delete "$b" >/dev/null 2>&1 || true
+git fetch -q --prune origin
+git reset -q --hard origin/main
+mark_seen
+
+ok "Shipped to main: PR #$pr  ($msg)"
+echo "Keep working here and ship again, or run git done when the task is finished."

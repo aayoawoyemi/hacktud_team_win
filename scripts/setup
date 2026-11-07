@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# bash scripts/setup   one-time setup on each laptop, run from the repo folder
+source "$(dirname "$0")/_lib.sh"
+cd "$(git rev-parse --show-toplevel)"
+
+need_gh
+gh auth status >/dev/null 2>&1 || die "Log in first: gh auth login"
+
+for c in task sync ship done board; do
+  git config "alias.$c" "!bash scripts/$c"
+done
+
+git config pull.rebase true
+git config rebase.autoStash true
+git config rerere.enabled true          # remembers how you fixed a conflict and reuses it
+git config fetch.prune true
+git config push.autoSetupRemote true
+git config core.autocrlf input           # keep scripts working on Windows
+git config hack.user "$(gh api user -q .login)"
+
+gh label create in-progress --color FBCA04 --description "Someone is working on this" --force >/dev/null 2>&1 || true
+gh label create contract --color D93F0B --description "Changes CONTRACTS.md" --force >/dev/null 2>&1 || true
+
+git fetch -q origin && mark_seen
+
+ok "Set up for $(git config hack.user)."
+cat <<'EOF'
+
+  git task "Add login page"   new task: issue + branch + its own folder
+  git task 12                 start existing issue #12
+  git sync                    get the latest main (run often)
+  git ship "what you did"     merge your work into main (any time it works)
+  git board                   who is doing what + file overlap warnings
+  git done                    task finished: close issue, delete folder
+EOF

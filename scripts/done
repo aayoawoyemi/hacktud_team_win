@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# git done            close this task's issue and delete its folder and branch
+# git done --force    same, throwing away unshipped work
+source "$(dirname "$0")/_lib.sh"
+need_gh
+
+force=0; [ "${1:-}" = "--force" ] && force=1
+b=$(current_branch)
+here=$(git rev-parse --show-toplevel)
+root=$(main_root)
+[ "$here" != "$root" ] || die "Run git done inside a task folder, not the main checkout."
+num=$(issue_of_branch "$b")
+
+git fetch -q --prune origin
+if [ "$force" = 0 ]; then
+  [ -z "$(git status --porcelain)" ] || die "Unshipped changes here. Run git ship first (or git done --force to discard them)."
+  [ "$(git rev-list --count origin/main..HEAD)" = 0 ] || die "Unshipped commits here. Run git ship first (or git done --force)."
+fi
+
+if [ -n "$num" ]; then
+  gh issue edit "$num" --remove-label in-progress >/dev/null 2>&1 || true
+  gh issue close "$num" -c "Done (git done)." >/dev/null 2>&1 || true
+fi
+
+cd "$root"
+git worktree remove --force "$here"
+git branch -D "$b" >/dev/null 2>&1 || true
+git push -q origin --delete "$b" >/dev/null 2>&1 || true
+git worktree prune
+
+ok "Closed${num:+ #$num} and removed $here"
+echo "Go back to the main folder: cd \"$root\""
