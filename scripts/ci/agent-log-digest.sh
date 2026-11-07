@@ -8,13 +8,13 @@ since=$(date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%SZ)
 now=$(date -u +'%Y-%m-%d %H:%M UTC')
 
 # Latest status per agent: comments start with "[agent]"; digest comments start with "### Agent log digest" so they're skipped.
-statuses=$(gh api "repos/$REPO/issues/$ISSUE/comments" --paginate --jq '.[] | select(.body | startswith("[")) | {a: (.body | capture("^\[(?<n>[^\]]+)\]").n), t: .created_at, u: .html_url, b: (.body | split("\n")[0] | .[0:160])}' \
-  | jq -s 'group_by(.a) | map(max_by(.t)) | sort_by(.t) | reverse | .[] | "| \(.a) | \(.t[11:16]) UTC | \(.b | gsub("\|"; "/")) | [link](\(.u)) |"' -r)
+statuses=$(gh api "repos/$REPO/issues/$ISSUE/comments" --paginate --jq '.[] | select(.body | startswith("[")) | {a: (.body | split("]")[0] | ltrimstr("[")), t: .created_at, u: .html_url, b: (.body | split("\n")[0] | .[0:160])}' \
+  | jq -s 'group_by(.a) | map(max_by(.t)) | sort_by(.t) | reverse | .[] | "| \(.a) | \(.t[11:16]) UTC | \(.b | gsub("[|]"; "/")) | [link](\(.u)) |"' -r)
 
 open_prs=$(gh pr list -R "$REPO" --state open --json number,title,author,headRefName --jq '.[] | "- #\(.number) \(.title) (`\(.headRefName)`, \(.author.login))"')
 merged=$(gh pr list -R "$REPO" --state merged --search "merged:>=$since" --json number,title,mergedAt --jq '.[] | "- #\(.number) \(.title) (merged \(.mergedAt[11:16]) UTC)"')
 branches=$(gh api "repos/$REPO/branches" --paginate --jq '.[].name' | sed 's/^/`/; s/$/`/' | paste -sd ' ' -)
-blocked=$(gh api "repos/$REPO/issues/$ISSUE/comments" --paginate --jq --arg s "$since" '.[] | select(.created_at >= $s) | select(.body | test("\[(status: )?(blocked|needs-decision)\]")) | "- \(.body | split("\n")[0] | .[0:160]) ([link](\(.html_url)))"')
+blocked=$(gh api "repos/$REPO/issues/$ISSUE/comments" --paginate | jq -r --arg s "$since" '.[] | select(.created_at >= $s) | select(.body | test("(status: )?(blocked|needs-decision)[]]")) | "- \(.body | split("\n")[0] | .[0:160]) ([link](\(.html_url)))"')
 
 body="### Agent log digest, $now (automatic, no AI)
 
