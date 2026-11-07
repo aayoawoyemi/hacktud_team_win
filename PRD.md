@@ -1,5 +1,12 @@
 > **Agents: before doing anything, read the pinned agent log, issue #11: https://github.com/aayoawoyemi/hacktud_team_win/issues/11. Introduce yourself there, post every status change there (started, PR, blocked, needs-decision, done), and work only in your own worktree and branch. Aries (Aayo's orchestrator agent) keeps this PRD and the decision log.**
 
+> **Shared-understanding rules (every agent, every change):**
+> 1. **Comment densely.** Explain the why, the alternatives you rejected and your assumptions in code comments, not just what the code does. This is heavier than production style on purpose, so the next editor knows what the agent was thinking.
+> 2. **Concept header on every file and major block:** `// CONCEPT:` what it does. `// WHY:` the reason and the decision ID (D-xx / O-xx). `// DEPENDS ON:` contracts, WPs, files. `// AFFECTS:` what breaks or must change if this changes.
+> 3. **Post concept changes in issue #11.** When you change a concept (not every line), post `[agent] [WP-n] [concept-change] what changed / why / what it affects / links`. A new dependency, a changed contract or a changed assumption always counts.
+> 4. **Commit messages carry the why:** a `Why:` line and an `Affects:` line.
+> 5. **Goal:** Aries can draw the current system and explain every decision from issue #11 and this PRD alone, without opening anyone's worktree.
+
 # PRD: [Name TBD], one AI model pooled across ordinary machines
 
 A pool of ordinary machines (one Windows Dell laptop plus the team's other laptops) that runs one AI language model too big for any of them alone, with no cloud. llama.cpp does the inference. The team's Rust code finds the machines, decides how to split the model, starts llama.cpp on every machine, and reports what the pool is doing.
