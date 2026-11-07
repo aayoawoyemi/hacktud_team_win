@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "plan_id": "plan-0003",
+  "llama_server_path": "C:\\path\\to\\llama-server.exe",
+  "model_path": "models/example-8b-q4_k_m.gguf",
+  "rpc": ["192.0.2.11:50052", "192.0.2.12:50052"],
+  "n_gpu_layers": "99",
+  "split_mode": "layer",
+  "tensor_split": null,
+  "devices": null,
+  "ctx_size": 8192,
+  "parallel": null,
+  "host": "127.0.0.1",
+  "port": 8080,
+  "metrics": true,
+  "flash_attn": null,
+  "speculative": null,
+  "extra_args": [],
+  "env": {}
+}

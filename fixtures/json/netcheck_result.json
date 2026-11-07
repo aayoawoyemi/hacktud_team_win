@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "from_node": "example-dell",
+  "to_node": "example-mac-a",
+  "to_addr": "192.0.2.11:50060",
+  "measured_at": "2026-11-07T22:30:00Z",
+  "rtt_ms": { "min": null, "p50": null, "p95": null, "max": null, "samples": 100 },
+  "throughput_mbps": { "send": null, "recv": null, "duration_s": 10 },
+  "tcp_nodelay": true,
+  "during_generation": false,
+  "error": null
+}

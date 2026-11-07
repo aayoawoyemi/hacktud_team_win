@@ -1,0 +1,720 @@
+// CONCEPT: the wire contract between every part of the system. Each message here is one PRD §6 shape
+//          (§6.1 to §6.11); the two services at the bottom are the control plane (§5.2) between the node
+//          agents and the coordinator.
+// WHY: O-03 (decided Sat 5:30pm): control-plane transport is gRPC with tonic, and ".proto files are the
+//      contract". protox compiles this file in build.rs, so no machine needs protoc.
+//      The same messages also have a JSON form (fixtures, logs, the WP-7 status output, bench results) that
+//      follows the §6.0 conventions; see crates/contracts/src/json.rs for how the JSON form is produced.
+// DEPENDS ON: PRD §6 (PROPOSED shapes), §5.6 (states), §6.10 (event kinds), §6.11 (error codes).
+// AFFECTS: WP-3 agent, WP-4 coordinator, WP-5 planner, WP-6 relay, WP-7 status, WP-8 bench, WP-9 recovery,
+//          WP-10 netcheck. Every consumer listed in PRD §6.14.
+//
+// RULES FOR CHANGING THIS FILE (PRD §1.4, §6.0, AGENTS.md):
+//   - Add fields, never rename, renumber or delete them. Field numbers are the protobuf wire identity;
+//     field names are the JSON identity. Changing either breaks the other side silently.
+//   - Every top-level message carries `schema_version` (field 1). Bump it only for a breaking change.
+//   - Ship a contract change on its own PR first ("contract: ...") and post concept-change in issue #11.
+//
+// CONVENTIONS USED BELOW (mirror §6.0):
+//   - Sizes are integer bytes (uint64), except fields mirroring llama.cpp output, which keep MiB and say
+//     so in the name (`free_mib`).
+//   - Wall-clock times are RFC 3339 UTC strings (`string`, not google.protobuf.Timestamp).
+//     Why: keeps the JSON form identical to the §6 examples and avoids a well-known-types dependency.
+//   - Durations are integers with a unit suffix (`_ms`, `_s`).
+//   - `optional` scalar = may be null ("unknown or not measured yet", §6.0). Message-typed fields are always
+//     nullable in proto3.
+//   - Lists that §6 shows as `null` when unset (e.g. `tensor_split`) are plain `repeated` fields: empty in
+//     protobuf, `null` in JSON. The list of those fields lives in build.rs (NULLABLE_COLLECTIONS).
+//   - Enums: proto3 requires value 0; every enum has `<NAME>_UNSPECIFIED = 0`, meaning "not set or a
+//     value this reader doesn't know" (a newer writer may add values; readers must not fail on them).
+//     JSON uses the short names from §6 (`"running"`, `"SERVING"`, `"E_CONFIG"`); see src/json.rs.
+//   - Unknown fields are ignored on read, in both protobuf and JSON.
+
+syntax = "proto3";
+
+// Package name is neutral on purpose: the project name (O-18) is not decided, and renaming a package
+// later would change every gRPC route.
+package contracts.v1;
+
+// =====================================================================================================
+// Shared small types
+// =====================================================================================================
+
+// CONCEPT: one error, as carried in Heartbeat.last_error, CommandResult.error, BenchResult.error and
+//          NetcheckResult.error. JSON: { "code": "E_RPC_SERVER_START", "message": "..." }.
+// WHY: §6.2 `last_error` shape; one shape everywhere so WP-7 can show any error the same way.
+// AFFECTS: every producer of an error.
+message ErrorInfo {
+  ErrorCode code = 1;
+  string message = 2;
+}
+
+// CONCEPT: the §6.11 error codes.
+// WHY: R2.5. A closed list lets the coordinator, the status API and the runbook (WP-13) branch on a code
+//      instead of matching message text.
+// AFFECTS: ErrorInfo.code. JSON names are the value names below verbatim ("E_CONFIG").
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  E_CONFIG = 1;             // config missing or invalid
+  E_TRANSPORT = 2;          // control-plane message failed
+  E_NODE_UNREACHABLE = 3;   // agent unreachable
+  E_RPC_SERVER_START = 4;   // rpc-server failed to start or exited at once
+  E_PORT_IN_USE = 5;        // the port is already taken (leftover process?)
+  E_RPC_UNREACHABLE = 6;    // main can't reach a helper's rpc-server port
+  E_VERSION_MISMATCH = 7;   // llama.cpp build or RPC protocol differs between nodes
+  E_MODEL_NOT_FOUND = 8;    // model file missing on main
+  E_GGUF_PARSE = 9;         // GGUF reader failed
+  E_MODEL_DOES_NOT_FIT = 10; // no plan fits the ready nodes
+  E_LAUNCH_FAILED = 11;     // llama-server failed to start
+  E_NOT_READY_TIMEOUT = 12; // llama-server not ready before the timeout
+  E_PLACEMENT_MISMATCH = 13; // actual placement differs from the plan
+  E_REQUEST_FAILED = 14;    // client request failed or stream cut
+  E_INTERNAL = 15;          // anything else
+}
+
+// CONCEPT: battery/AC state. Used by NodeCapabilities.power and Heartbeat.power.
+// WHY: §6.1 marks power as SHOULD: a helper on battery may throttle or sleep mid-demo.
+// AFFECTS: WP-7 status display.
+message PowerInfo {
+  optional bool on_ac = 1;        // null where the OS doesn't report it
+  optional uint32 battery_pct = 2; // 0..100, null if no battery or unknown
+}
+
+// =====================================================================================================
+// §6.1 NodeCapabilities (agent -> coordinator, on registration and whenever it changes)
+// =====================================================================================================
+
+// CONCEPT: everything the coordinator and planner need to know about one machine.
+// WHY: the planner (WP-5) sizes the split from `memory` and `devices`; the coordinator flags
+//      `version_mismatch` from `llama_cpp.build` / `rpc_protocol` (a mismatched rpc-server corrupts runs).
+// DEPENDS ON: the WP-2 parsers (src/parsers.rs) fill `llama_cpp`, `devices` and `rpc_server_devices`
+//             from `llama-server --version`, `--list-devices` and the rpc-server banner.
+// AFFECTS: WP-4 (registry), WP-5 (planner), WP-7 (status). Producer: WP-3.
+message NodeCapabilities {
+  uint32 schema_version = 1;
+  string node_id = 2;            // scheme per O-16 (OPEN)
+  string hostname = 3;
+  string agent_version = 4;
+  string captured_at = 5;        // RFC 3339 UTC
+  OsInfo os = 6;
+  CpuInfo cpu = 7;
+  MemoryInfo memory = 8;
+  LlamaCppInfo llama_cpp = 9;
+  repeated DeviceInfo devices = 10;        // one per `llama-server --list-devices` line
+  repeated string rpc_server_devices = 11; // what rpc-server actually exposes (from its start banner)
+  DiskInfo disk = 12;
+  NetworkInfo network = 13;
+  SpeedInfo speed = 14;          // filled by the O-22 speed probe; fields null until measured
+  PowerInfo power = 15;
+}
+
+message OsInfo {
+  string family = 1;          // "windows" | "macos" | "linux" (string, not enum: only informational)
+  optional string version = 2;
+  string arch = 3;            // "x86_64" | "aarch64"
+}
+
+message CpuInfo {
+  string model = 1;
+  optional uint32 physical_cores = 2;
+  optional uint32 logical_cores = 3;
+}
+
+message MemoryInfo {
+  uint64 total_bytes = 1;
+  uint64 available_bytes = 2;
+}
+
+// CONCEPT: which llama.cpp this node runs. O-14 pins build 8665 everywhere; this is how the coordinator
+//          checks that it really is.
+message LlamaCppInfo {
+  string bin_dir = 1;
+  optional uint32 build = 2;        // from `--version`: "version: 8665 (b8635075f)"
+  optional string commit = 3;       // "b8635075f"
+  optional string rpc_protocol = 4; // from the rpc-server banner: "Starting RPC server v3.6.1"
+  repeated string backends = 5;     // e.g. ["CPU", "Vulkan", "RPC"]
+}
+
+// CONCEPT: one compute device as llama.cpp names it, e.g. "Vulkan1: NVIDIA GeForce RTX 3050 Ti Laptop GPU
+//          (3965 MiB, 3370 MiB free)". Produced by parsers::parse_list_devices / parse_rpc_server_banner.
+// WHY: the planner needs per-device free memory; MiB stays MiB because that is what llama.cpp prints.
+message DeviceInfo {
+  string name = 1;                // "Vulkan0", "MTL0", "CPU" ...
+  string description = 2;         // "Intel(R) UHD Graphics"
+  string backend = 3;             // name without its trailing index: "Vulkan", "MTL", "CUDA"
+  uint64 total_mib = 4;
+  uint64 free_mib = 5;
+  // true when the device uses system RAM: Vulkan prints `uma: 1` in its init log for Intel integrated
+  // graphics; Apple GPUs always share memory. null when unknown.
+  optional bool unified_memory = 6;
+}
+
+message DiskInfo {
+  optional string model_dir = 1;
+  optional uint64 model_dir_free_bytes = 2;
+  optional string cache_dir = 3;
+  optional uint64 cache_dir_free_bytes = 4;
+}
+
+message NetworkInfo {
+  repeated string addresses = 1;
+  optional string interface = 2;
+}
+
+// CONCEPT: measured speed of a node. HOW it is measured is O-22 (OPEN); the shape just holds both options.
+message SpeedInfo {
+  optional double mem_bandwidth_gbps = 1;
+  optional double llama_bench_tg_tps = 2;
+  optional string measured_with = 3;
+}
+
+// =====================================================================================================
+// §6.2 Heartbeat (agent -> coordinator, every heartbeat_interval_ms)
+// =====================================================================================================
+
+// CONCEPT: the agent's periodic "I'm alive, and here is my rpc-server" message.
+// WHY: WP-9 declares a node LOST after node_timeout_ms (O-26) without one; WP-7 shows load and relay bytes.
+// DEPENDS ON: WP-6 fills `relay`.
+// AFFECTS: WP-4 registry, WP-7 status, WP-9 recovery. Sent over CoordinatorService.StreamHeartbeats.
+message Heartbeat {
+  uint32 schema_version = 1;
+  string node_id = 2;
+  uint64 seq = 3;              // increases by 1 per heartbeat; a gap means lost heartbeats
+  string sent_at = 4;          // RFC 3339 UTC
+  RpcServerStatus rpc_server = 5;
+  LoadInfo load = 6;
+  RelayStats relay = 7;
+  PowerInfo power = 8;
+  ErrorInfo last_error = 9;    // null when no error
+}
+
+// CONCEPT: the supervised rpc-server child process, as the agent sees it (O-01 = A).
+message RpcServerStatus {
+  RpcServerState state = 1;
+  optional uint32 pid = 2;
+  optional string bind = 3;
+  optional uint32 port = 4;
+  optional string started_at = 5;
+  uint32 restarts = 6;
+  optional int32 last_exit_code = 7;
+  bool port_accepting = 8;     // the agent's own TCP connect check against bind:port
+}
+
+// CONCEPT: lifecycle of the rpc-server child. JSON: "not_started" | "starting" | "running" | "exited" | "failed".
+enum RpcServerState {
+  RPC_SERVER_STATE_UNSPECIFIED = 0;
+  RPC_SERVER_STATE_NOT_STARTED = 1;
+  RPC_SERVER_STATE_STARTING = 2;
+  RPC_SERVER_STATE_RUNNING = 3;
+  RPC_SERVER_STATE_EXITED = 4;
+  RPC_SERVER_STATE_FAILED = 5;
+}
+
+message LoadInfo {
+  optional double cpu_util_pct = 1;
+  optional uint64 mem_used_bytes = 2;
+  // Only if a live source exists (llama.cpp prints free device memory only at start); else null.
+  optional uint64 device_free_mib = 3;
+}
+
+// CONCEPT: bytes moved between main and this helper's rpc-server (the data plane, §5.2).
+// WHY: the demo's "these machines are really working together" signal; WP-6 owns how it's measured (O-08).
+// AFFECTS: Heartbeat.relay (full), ClusterStatus NodeStatus.relay (WP-7 may leave source/graph_computes null).
+message RelayStats {
+  optional RelaySource source = 1;  // null when no relay telemetry is running
+  optional uint64 bytes_in = 2;
+  optional uint64 bytes_out = 3;
+  optional uint64 graph_computes = 4;
+  optional string last_activity_at = 5;
+}
+
+// CONCEPT: where relay numbers come from. JSON: "debug_log" (option 6A) | "proxy" (option 6B). O-08 is OPEN.
+enum RelaySource {
+  RELAY_SOURCE_UNSPECIFIED = 0;
+  RELAY_SOURCE_DEBUG_LOG = 1;
+  RELAY_SOURCE_PROXY = 2;
+}
+
+// =====================================================================================================
+// §6.3 Command and CommandResult (coordinator -> agent, over AgentService.Execute)
+// =====================================================================================================
+
+// CONCEPT: one instruction from the coordinator to a node agent.
+// WHY: the coordinator (on main) orchestrates startup (§5.5 steps 4 and 7); the agent is the only process
+//      on a helper allowed to start or stop rpc-server.
+// JSON: the oneof below is written as two keys, exactly like §6.3:
+//       { "schema_version": 1, "command_id": "cmd-0007", "kind": "start_rpc_server", "args": { ... } }
+//       `kind` is the snake_case name of the oneof field that is set.
+// AFFECTS: WP-3 (executes), WP-4 (sends). Rule from §6.3: start/stop are idempotent.
+message Command {
+  uint32 schema_version = 1;
+  string command_id = 2;
+  oneof args {
+    StartRpcServerArgs start_rpc_server = 10;
+    StopRpcServerArgs stop_rpc_server = 11;
+    ProbeArgs probe = 12;
+    SpeedProbeArgs speed_probe = 13;
+    NetcheckArgs netcheck = 14;
+  }
+}
+
+// null (unset) means "use rpc-server's default" for every field (§6.3).
+message StartRpcServerArgs {
+  optional string bind = 1;          // rpc-server -H
+  optional uint32 port = 2;          // rpc-server -p (llama.cpp default 50052)
+  repeated string devices = 3;       // rpc-server -d; JSON null when empty (= rpc-server default)
+  optional uint32 threads = 4;       // rpc-server -t
+  optional bool cache = 5;           // rpc-server -c (local tensor cache)
+  optional uint32 debug_level = 6;   // GGML_RPC_DEBUG, 0..3 (O-08)
+  map<string, string> env = 7;       // extra environment for the child process
+}
+
+message StopRpcServerArgs {}
+message ProbeArgs {}
+
+message SpeedProbeArgs {
+  // O-22 (OPEN) picks the method; string so this contract doesn't decide it.
+  optional string method = 1;
+}
+
+message NetcheckArgs {
+  string target_addr = 1;     // host:port of the peer's netcheck listener (port per O-17)
+  optional uint32 duration_s = 2;
+}
+
+// CONCEPT: the agent's reply to one Command.
+// JSON: { "schema_version": 1, "command_id": "cmd-0007", "ok": true, "error": null,
+//         "kind": "start_rpc_server", "data": { ... } }
+// NOTE (additive change vs §6.3): `kind` is new. It echoes the command kind and tells a JSON reader which
+//      shape `data` has; without it, `data` can't be typed. Absent when the command failed with no data.
+message CommandResult {
+  uint32 schema_version = 1;
+  string command_id = 2;
+  bool ok = 3;
+  ErrorInfo error = 4;
+  oneof data {
+    StartRpcServerResult start_rpc_server = 10;
+    StopRpcServerResult stop_rpc_server = 11;
+    NodeCapabilities probe = 12;
+    SpeedInfo speed_probe = 13;
+    NetcheckResult netcheck = 14;
+  }
+}
+
+message StartRpcServerResult {
+  optional uint32 pid = 1;
+  RpcServerBanner banner = 2;
+}
+
+// CONCEPT: what rpc-server printed when it started (parsed by parsers::parse_rpc_server_banner).
+// WHY: proves which protocol version and which devices this helper really exposes.
+message RpcServerBanner {
+  string rpc_protocol = 1;   // "3.6.1"
+  string endpoint = 2;       // "192.0.2.10:50052"
+  string local_cache = 3;    // a folder, or "n/a" when -c is off
+  repeated string devices = 4; // ["Vulkan0", "Vulkan1"]
+}
+
+message StopRpcServerResult {
+  optional int32 exit_code = 1;
+}
+
+// =====================================================================================================
+// §6.4 ModelInfo (planner output, one per model file)
+// =====================================================================================================
+
+// CONCEPT: what the WP-5 GGUF reader learned about one model file.
+// WHY: the planner needs per-layer bytes and the KV-cache formula inputs (§4.4) to decide a split.
+// AFFECTS: WP-4, WP-7, WP-11. Producer: WP-5 (crates/planner).
+message ModelInfo {
+  uint32 schema_version = 1;
+  string model_id = 2;          // scheme OPEN (file name or content hash), decide with O-16
+  string path = 3;
+  uint64 file_bytes = 4;
+  uint32 split_files = 5;
+  uint32 gguf_version = 6;
+  string architecture = 7;
+  string name = 8;
+  uint32 file_type = 9;         // general.file_type; 15 is Q4_K_M
+  uint32 n_layers = 10;
+  uint32 n_embd = 11;
+  uint32 n_head = 12;
+  uint32 n_head_kv = 13;
+  uint32 key_length = 14;
+  uint32 value_length = 15;
+  uint64 n_ctx_train = 16;
+  optional uint32 expert_count = 17;
+  optional uint32 expert_used_count = 18;
+  repeated uint64 layer_bytes = 19;         // one entry per layer
+  map<string, uint64> non_layer_bytes = 20; // tensor name -> bytes (token_embd.weight, output.weight, ...)
+  optional uint64 kv_bytes_per_token_f16 = 21; // null + a warning when the §4.4 formula doesn't apply
+  repeated string warnings = 22;
+}
+
+// =====================================================================================================
+// §6.5 SplitPlan (planner output)
+// =====================================================================================================
+
+// CONCEPT: which layers go to which device on which node.
+// WHY: D-01: the demo is one model split by layers. `fits = false` means the coordinator refuses to launch
+//      (E_MODEL_DOES_NOT_FIT).
+// AFFECTS: WP-4 (turns it into a LaunchSpec), WP-7, WP-9. Producer: WP-5.
+message SplitPlan {
+  uint32 schema_version = 1;
+  string plan_id = 2;
+  string created_at = 3;
+  string model_id = 4;
+  SplitStrategy strategy = 5;
+  uint32 ctx_size = 6;
+  uint32 parallel = 7;
+  repeated string device_order = 8;   // llama.cpp device names in the order -ts follows (VERIFY in WP-1)
+  repeated double tensor_split = 9;   // proportions in device_order; JSON null for llama_default
+  repeated LayerAssignment assignments = 10;
+  repeated string main_cpu_holds = 11;
+  bool fits = 12;
+  optional double est_ms_per_token = 13;
+  repeated string warnings = 14;
+}
+
+// CONCEPT: the WP-5 strategies. Which one the demo uses is O-07 (OPEN); this lists the candidates.
+// JSON: "llama_default" | "proportional_usable" | "fastest_first" | "min_machines".
+enum SplitStrategy {
+  SPLIT_STRATEGY_UNSPECIFIED = 0;
+  SPLIT_STRATEGY_LLAMA_DEFAULT = 1;
+  SPLIT_STRATEGY_PROPORTIONAL_USABLE = 2;
+  SPLIT_STRATEGY_FASTEST_FIRST = 3;
+  SPLIT_STRATEGY_MIN_MACHINES = 4;
+}
+
+message LayerAssignment {
+  string node_id = 1;
+  string device = 2;            // the node's own device name ("Vulkan1", "Metal")
+  string llama_device = 3;      // how llama-server on main names it ("Vulkan1", "RPC0")
+  repeated uint32 layers = 4;   // inclusive range, exactly two entries: [first, last]
+  uint64 weight_bytes = 5;
+  uint64 kv_bytes = 6;
+  optional uint64 compute_buffer_bytes_est = 7;
+  optional uint64 usable_bytes = 8;
+  optional int64 headroom_bytes = 9; // signed: negative means over budget
+}
+
+// =====================================================================================================
+// §6.6 LaunchSpec (coordinator -> its llama-server launcher)
+// =====================================================================================================
+
+// CONCEPT: the exact llama-server command line, as data. Each field maps to one flag (table in §6.6).
+// WHY: O-01 = A: the coordinator starts the official llama-server binary; a struct (not a string) makes
+//      the flags reviewable, loggable and testable.
+// AFFECTS: WP-4 (builds and runs it), WP-9 (re-launches it).
+message LaunchSpec {
+  uint32 schema_version = 1;
+  string plan_id = 2;
+  string llama_server_path = 3;
+  string model_path = 4;
+  repeated string rpc = 5;            // --rpc a,b (helper addresses, or proxy addresses under 6B)
+  optional string n_gpu_layers = 6;   // -ngl; string because accepted values are VERIFY
+  optional string split_mode = 7;     // -sm
+  repeated double tensor_split = 8;   // -ts; JSON null = not passed
+  repeated string devices = 9;        // -dev (O-23); JSON null = not passed
+  optional uint32 ctx_size = 10;      // -c (O-25)
+  optional uint32 parallel = 11;      // -np (O-12)
+  optional string host = 12;          // --host (O-20)
+  optional uint32 port = 13;          // --port (llama.cpp default 8080)
+  optional bool metrics = 14;         // --metrics; SHOULD be true for WP-7
+  optional string flash_attn = 15;    // -fa
+  SpeculativeSpec speculative = 16;   // WP-S1 only; null otherwise
+  repeated string extra_args = 17;
+  map<string, string> env = 18;
+}
+
+// CONCEPT: speculative-decoding flags (WP-S1 stretch, O-15 OPEN). Field per flag in §6.6.
+message SpeculativeSpec {
+  optional string spec_type = 1;      // --spec-type
+  optional string draft_model = 2;    // -md
+  optional uint32 draft_max = 3;      // --draft-max
+  optional uint32 draft_min = 4;      // --draft-min
+  optional double draft_p_min = 5;    // --draft-p-min
+  repeated string draft_devices = 6;  // -devd
+}
+
+// =====================================================================================================
+// §6.7 ClusterStatus (WP-7 output)
+// =====================================================================================================
+
+// CONCEPT: one snapshot of the whole pool, for the status API and the demo display (O-10).
+// WHY: `pool.model_to_largest_machine_ratio` is the number behind D-07 (Part 2 should read about 3).
+// AFFECTS: WP-8, WP-13, the O-10 display. Producer: WP-7.
+message ClusterStatus {
+  uint32 schema_version = 1;
+  string generated_at = 2;
+  ClusterState cluster_state = 3;
+  optional string endpoint = 4;       // "http://127.0.0.1:8080/v1"
+  ModelSummary model = 5;
+  optional string plan_id = 6;
+  optional SplitStrategy strategy = 7;
+  repeated NodeStatus nodes = 8;
+  PoolSummary pool = 9;
+  LlamaServerStatus llama_server = 10;
+  LastRequest last_request = 11;
+  repeated Event events_tail = 12;
+}
+
+// CONCEPT: cluster states from §5.6 (PROPOSED). JSON uses the upper-case names: "SERVING".
+// EMPTY -> PLANNED -> STARTING_HELPERS -> LAUNCHING -> SERVING -> DEGRADED -> RECOVERING -> SERVING | FAILED;
+// STOPPED on request from any state.
+enum ClusterState {
+  CLUSTER_STATE_UNSPECIFIED = 0;
+  CLUSTER_STATE_EMPTY = 1;
+  CLUSTER_STATE_PLANNED = 2;
+  CLUSTER_STATE_STARTING_HELPERS = 3;
+  CLUSTER_STATE_LAUNCHING = 4;
+  CLUSTER_STATE_SERVING = 5;
+  CLUSTER_STATE_DEGRADED = 6;
+  CLUSTER_STATE_RECOVERING = 7;
+  CLUSTER_STATE_FAILED = 8;
+  CLUSTER_STATE_STOPPED = 9;
+}
+
+// CONCEPT: node states from §5.6 (PROPOSED). JSON upper-case: "ACTIVE".
+// UNKNOWN -> REGISTERED -> READY -> ACTIVE -> LOST; a LOST node that returns goes back to REGISTERED.
+enum NodeState {
+  NODE_STATE_UNSPECIFIED = 0;
+  NODE_STATE_UNKNOWN = 1;
+  NODE_STATE_REGISTERED = 2;
+  NODE_STATE_READY = 3;
+  NODE_STATE_ACTIVE = 4;
+  NODE_STATE_LOST = 5;
+}
+
+// CONCEPT: the two roles from §5.1. JSON: "main" | "helper".
+enum NodeRole {
+  NODE_ROLE_UNSPECIFIED = 0;
+  NODE_ROLE_MAIN = 1;
+  NODE_ROLE_HELPER = 2;
+}
+
+message ModelSummary {
+  string model_id = 1;
+  string name = 2;
+  uint64 file_bytes = 3;
+}
+
+message NodeStatus {
+  string node_id = 1;
+  NodeRole role = 2;
+  NodeState state = 3;
+  optional uint64 last_heartbeat_age_ms = 4;
+  optional uint32 llama_cpp_build = 5;
+  repeated DevicePlacement devices = 6;
+  optional double cpu_util_pct = 7;
+  RelayStats relay = 8;
+  optional double rtt_ms_to_main = 9;
+}
+
+// CONCEPT: planned vs actual placement for one llama-server device. `actual_*` come from the load-log
+//          parser (§5.5 step 7); a difference raises `placement_mismatch`.
+message DevicePlacement {
+  string llama_device = 1;
+  repeated uint32 planned_layers = 2;  // [first, last]
+  repeated uint32 actual_layers = 3;   // [first, last]; JSON null until the load log is parsed
+  optional uint64 planned_bytes = 4;
+  optional uint64 actual_buffer_mib = 5;
+}
+
+message PoolSummary {
+  uint64 usable_bytes_total = 1;
+  uint64 largest_single_machine_usable_bytes = 2;
+  uint64 model_bytes = 3;
+  double model_to_largest_machine_ratio = 4;
+}
+
+// CONCEPT: the llama-server process on main.
+// `metrics` and `slots` are PROPOSED shapes (§6.7 only shows null); WP-7 owns them and may add fields.
+message LlamaServerStatus {
+  optional uint32 pid = 1;
+  bool ready = 2;
+  map<string, double> metrics = 3;   // Prometheus name -> value from /metrics; JSON null when not scraped
+  repeated SlotStatus slots = 4;     // from /slots; JSON null when not scraped
+}
+
+message SlotStatus {
+  uint32 id = 1;
+  optional uint32 n_ctx = 2;
+  optional bool is_processing = 3;
+}
+
+message LastRequest {
+  optional uint64 ttft_ms = 1;
+  optional double gen_tokens_per_s = 2;
+  optional uint32 completion_tokens = 3;
+  optional string finished_at = 4;
+}
+
+// =====================================================================================================
+// §6.8 BenchResult (WP-8 output, one JSON line per request)
+// =====================================================================================================
+
+// CONCEPT: one measured request. The demo's numbers (R13.4) come from these lines.
+// AFFECTS: WP-13, WP-14. Producer: WP-8 (crates/bench).
+message BenchResult {
+  uint32 schema_version = 1;
+  string run_id = 2;
+  // Scenario IDs are PROPOSED (O-13 picks which run): single_fit, split_2, split_3, largest_single,
+  // pool_part1, pool_part2, dllama_compare. String, not enum, so adding a scenario needs no contract change.
+  string scenario = 3;
+  uint32 repeat_index = 4;
+  bool warmup = 5;
+  string started_at = 6;
+  string model_id = 7;
+  optional string plan_id = 8;
+  repeated string nodes = 9;
+  optional uint32 llama_cpp_build = 10;
+  optional uint32 ctx_size = 11;
+  string prompt_id = 12;
+  optional uint32 max_tokens = 13;
+  optional uint32 prompt_tokens = 14;
+  optional uint32 completion_tokens = 15;
+  optional uint64 ttft_ms = 16;
+  optional double gen_tokens_per_s = 17;
+  optional double prompt_tokens_per_s = 18;
+  optional uint64 total_ms = 19;
+  ServerTimings server_timings = 20;
+  ErrorInfo error = 21;
+  string notes = 22;
+}
+
+// CONCEPT: llama-server's own `timings` object from a completion response (field names mirror llama.cpp).
+// PROPOSED: §6.8 only shows null; WP-8 owns it and may add fields.
+message ServerTimings {
+  optional uint32 prompt_n = 1;
+  optional double prompt_ms = 2;
+  optional double prompt_per_token_ms = 3;
+  optional double prompt_per_second = 4;
+  optional uint32 predicted_n = 5;
+  optional double predicted_ms = 6;
+  optional double predicted_per_token_ms = 7;
+  optional double predicted_per_second = 8;
+}
+
+// =====================================================================================================
+// §6.9 NetcheckResult (WP-10 output)
+// =====================================================================================================
+
+// CONCEPT: measured link between two nodes. Layer-split token latency is dominated by per-hop RTT (§4.2).
+// AFFECTS: WP-5, WP-7. Producer: WP-10 (crates/netcheck). Also CommandResult data for `netcheck`.
+message NetcheckResult {
+  uint32 schema_version = 1;
+  string from_node = 2;
+  string to_node = 3;
+  string to_addr = 4;
+  string measured_at = 5;
+  RttStats rtt_ms = 6;
+  ThroughputStats throughput_mbps = 7;
+  bool tcp_nodelay = 8;
+  bool during_generation = 9;
+  ErrorInfo error = 10;
+}
+
+// RTT in milliseconds (double: LAN RTTs are often below 1 ms).
+message RttStats {
+  optional double min = 1;
+  optional double p50 = 2;
+  optional double p95 = 3;
+  optional double max = 4;
+  uint32 samples = 5;
+}
+
+message ThroughputStats {
+  optional double send = 1;   // Mbit/s
+  optional double recv = 2;   // Mbit/s
+  uint32 duration_s = 3;
+}
+
+// =====================================================================================================
+// §6.10 Event (coordinator event log)
+// =====================================================================================================
+
+// CONCEPT: one line of the coordinator's event log; ClusterStatus.events_tail shows the latest.
+// AFFECTS: WP-7. Producers: WP-4, WP-9.
+message Event {
+  uint32 schema_version = 1;
+  uint64 seq = 2;
+  string at = 3;
+  EventKind kind = 4;
+  optional string node_id = 5;
+  optional string plan_id = 6;
+  string message = 7;
+  // Free-form details. §6.10 shows `{}`; string -> string keeps it typed in protobuf. Numbers go in as text.
+  map<string, string> data = 8;
+}
+
+// CONCEPT: the §6.10 event kinds (R2.5). JSON uses the lower-case names: "node_lost".
+enum EventKind {
+  EVENT_KIND_UNSPECIFIED = 0;
+  EVENT_KIND_NODE_REGISTERED = 1;
+  EVENT_KIND_NODE_CAPABILITIES_CHANGED = 2;
+  EVENT_KIND_NODE_LOST = 3;
+  EVENT_KIND_NODE_RECOVERED = 4;
+  EVENT_KIND_VERSION_MISMATCH = 5;
+  EVENT_KIND_RPC_SERVER_STARTED = 6;
+  EVENT_KIND_RPC_SERVER_EXITED = 7;
+  EVENT_KIND_PLAN_CREATED = 8;
+  EVENT_KIND_PLAN_REJECTED = 9;
+  EVENT_KIND_LAUNCH_STARTED = 10;
+  EVENT_KIND_LLAMA_SERVER_READY = 11;
+  EVENT_KIND_LLAMA_SERVER_EXITED = 12;
+  EVENT_KIND_PLACEMENT_MISMATCH = 13;
+  EVENT_KIND_REQUEST_FAILED = 14;
+  EVENT_KIND_RECOVERY_STARTED = 15;
+  EVENT_KIND_RECOVERY_SUCCEEDED = 16;
+  EVENT_KIND_RECOVERY_FAILED = 17;
+  EVENT_KIND_NETCHECK_RESULT = 18;
+  EVENT_KIND_BENCH_COMPLETED = 19;
+}
+
+// =====================================================================================================
+// Services (the control plane, §5.2)
+// =====================================================================================================
+
+// CONCEPT: served by every node agent; the coordinator is the client.
+// WHY: the coordinator drives startup (§5.5): it tells helpers to start rpc-server, asks for probes, etc.
+//      Unary request/reply keeps each command independently retryable; `command_id` makes retries
+//      traceable, and start/stop are idempotent (§6.3).
+// DEPENDS ON: the agent listening on `agent_addr` (from RegisterRequest; port per O-17, OPEN).
+// AFFECTS: WP-3 implements the server, WP-4 the client.
+service AgentService {
+  rpc Execute(Command) returns (CommandResult);
+}
+
+// CONCEPT: served by the coordinator on main; agents are the clients.
+// WHY: agents register with a coordinator address they are given (§5.5 step 1), then keep one
+//      client-streaming call open and push a Heartbeat every heartbeat_interval_ms (O-26). One long-lived
+//      stream per agent is cheaper than one RPC per heartbeat, and a broken stream is itself a signal.
+//      If the coordinator doesn't know the node (e.g. it restarted), it ends the stream with gRPC status
+//      FAILED_PRECONDITION and the agent registers again.
+// AFFECTS: WP-3 implements the client, WP-4 the server, WP-9 reads heartbeat gaps.
+service CoordinatorService {
+  // Also called again whenever the node's capabilities change (§6.1).
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc StreamHeartbeats(stream Heartbeat) returns (HeartbeatStreamSummary);
+}
+
+message RegisterRequest {
+  uint32 schema_version = 1;
+  NodeCapabilities capabilities = 2;
+  // host:port where this node's AgentService listens, so the coordinator can send Commands.
+  string agent_addr = 3;
+}
+
+message RegisterResponse {
+  uint32 schema_version = 1;
+  bool accepted = 2;
+  ErrorInfo error = 3;          // e.g. E_VERSION_MISMATCH when accepted = false
+  string coordinator_version = 4;
+}
+
+// Returned when a heartbeat stream ends (normally only on shutdown).
+message HeartbeatStreamSummary {
+  uint32 schema_version = 1;
+  uint64 received = 2;
+}

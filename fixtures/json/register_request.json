@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "capabilities": {
+    "schema_version": 1,
+    "node_id": "example-mac-a",
+    "hostname": "example-mac-a.local",
+    "agent_version": "0.1.0",
+    "captured_at": "2026-11-07T21:52:00Z",
+    "os": { "family": "macos", "version": null, "arch": "aarch64" },
+    "cpu": { "model": "Apple M5", "physical_cores": null, "logical_cores": 10 },
+    "memory": { "total_bytes": 17179869184, "available_bytes": 9000000000 },
+    "llama_cpp": { "bin_dir": "/path/to/llama.cpp", "build": 8665, "commit": "b8635075f", "rpc_protocol": "3.6.1", "backends": ["CPU", "Metal", "RPC"] },
+    "devices": [],
+    "rpc_server_devices": [],
+    "disk": null,
+    "network": { "addresses": ["192.0.2.11"], "interface": null },
+    "speed": null,
+    "power": null
+  },
+  "agent_addr": "192.0.2.11:50070"
+}

@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-11-07T22:15:00Z",
+  "cluster_state": "SERVING",
+  "endpoint": "http://127.0.0.1:8080/v1",
+  "model": { "model_id": "example-8b-q4_k_m", "name": "example", "file_bytes": 4920000000 },
+  "plan_id": "plan-0003",
+  "strategy": "llama_default",
+  "nodes": [
+    {
+      "node_id": "example-mac-a",
+      "role": "helper",
+      "state": "ACTIVE",
+      "last_heartbeat_age_ms": 900,
+      "llama_cpp_build": 8665,
+      "devices": [
+        { "llama_device": "RPC0", "planned_layers": [6, 18], "actual_layers": null, "planned_bytes": 2139207616, "actual_buffer_mib": null }
+      ],
+      "cpu_util_pct": 41.0,
+      "relay": { "bytes_in": 1048576, "bytes_out": 2097152, "last_activity_at": "2026-11-07T22:14:59Z" },
+      "rtt_ms_to_main": null
+    }
+  ],
+  "pool": {
+    "usable_bytes_total": 21000000000,
+    "largest_single_machine_usable_bytes": 9000000000,
+    "model_bytes": 4920000000,
+    "model_to_largest_machine_ratio": 0.55
+  },
+  "llama_server": { "pid": 23456, "ready": true, "metrics": null, "slots": null },
+  "last_request": { "ttft_ms": null, "gen_tokens_per_s": null, "completion_tokens": null, "finished_at": null },
+  "events_tail": []
+}

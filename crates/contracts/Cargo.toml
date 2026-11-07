@@ -2,7 +2,8 @@
 #          llama.cpp's text output.
 # WHY: workspace skeleton from WP-12 R12.1. Every other crate exchanges these types, so they live in one crate
 #      that the agent and coordinator both compile (PRD §6, O-03: gRPC with tonic + protox).
-# DEPENDS ON: nothing yet. WP-2 adds tonic, prost, protox and serde on its own PR.
+# DEPENDS ON: proto/contracts.proto (the source of truth); build.rs compiles it with protox (pure Rust, so no
+#             protoc install, O-03) and generates Rust with tonic-prost-build; serde for the JSON form.
 # AFFECTS: agent, coordinator, planner, relay, bench, netcheck.
 [package]
 name = "contracts"
@@ -12,3 +13,24 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+# gRPC runtime + codegen support for the generated AgentService / CoordinatorService clients and servers.
+tonic = { workspace = true }
+tonic-prost = { workspace = true }
+# Protobuf message runtime for the generated types.
+prost = { workspace = true }
+# JSON form of every message (fixtures, logs, the status API). Derives are attached in build.rs.
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Error type for the llama.cpp output parsers.
+thiserror = { workspace = true }
+
+[build-dependencies]
+# protox parses .proto files into a FileDescriptorSet in pure Rust (replaces the protoc binary).
+protox = { workspace = true }
+# Turns that descriptor set into prost messages + tonic services.
+tonic-prost-build = { workspace = true }
+prost-types = { workspace = true }
+
+[dev-dependencies]
+# Async runtime for tests/grpc_loopback.rs only (the crate itself stays runtime-agnostic).
+tokio = { workspace = true }

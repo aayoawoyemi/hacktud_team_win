@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "command_id": "cmd-0008",
+  "kind": "netcheck",
+  "args": { "target_addr": "192.0.2.11:50060", "duration_s": 10 }
+}

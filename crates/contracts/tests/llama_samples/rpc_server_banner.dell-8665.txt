@@ -1,0 +1,6 @@
+Starting RPC server v3.6.1
+  endpoint       : 127.0.0.1:50999
+  local cache    : n/a
+Devices:
+  Vulkan0: Intel(R) UHD Graphics (8051 MiB, 7393 MiB free)
+  Vulkan1: NVIDIA GeForce RTX 3050 Ti Laptop GPU (3965 MiB, 3370 MiB free)

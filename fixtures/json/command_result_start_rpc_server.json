@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "command_id": "cmd-0007",
+  "ok": true,
+  "error": null,
+  "kind": "start_rpc_server",
+  "data": {
+    "pid": 12345,
+    "banner": { "rpc_protocol": "3.6.1", "endpoint": "192.0.2.10:50052", "local_cache": "n/a", "devices": ["Vulkan0", "Vulkan1"] }
+  }
+}
