@@ -1,0 +1,14 @@
+# CONCEPT: planner crate, owned by WP-5. PLACEHOLDER. GGUF reader, capacity normalization and split planner.
+# WHY: workspace skeleton from WP-12 R12.1; WP-5 is being written by another agent in his own crate; he moves it into this folder. This stub only exists so the workspace builds before then.
+# DEPENDS ON: contracts (ModelInfo, SplitPlan) once WP-5 lands.
+# AFFECTS: coordinator (asks for a SplitPlan).
+# Library crate on purpose: O-02 (one CLI binary with subcommands vs one binary per crate) is still open.
+# Adding src/main.rs later (or a separate CLI crate) is a one-file change either way.
+[package]
+name = "planner"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]

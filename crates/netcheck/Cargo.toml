@@ -1,0 +1,14 @@
+# CONCEPT: netcheck crate, owned by WP-10. Round-trip time and throughput tool between two machines.
+# WHY: workspace skeleton from WP-12 R12.1; token latency in a layer split is dominated by per-hop RTT (PRD §4.2); the team needs measured numbers per network option (O-05).
+# DEPENDS ON: contracts (NetcheckResult).
+# AFFECTS: planner (WP-5 may use RTT), coordinator status (WP-7).
+# Library crate on purpose: O-02 (one CLI binary with subcommands vs one binary per crate) is still open.
+# Adding src/main.rs later (or a separate CLI crate) is a one-file change either way.
+[package]
+name = "netcheck"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]

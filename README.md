@@ -45,3 +45,16 @@ bash scripts/setup
   before the merge.
 - `rerere` (set by setup): git remembers how a conflict was fixed and reuses the fix.
 - `.env` files are copied into each new task folder automatically and are never committed.
+
+## Build (Rust workspace)
+
+The Rust code is one Cargo workspace: `Cargo.toml` at the root, one crate per role under `crates/`
+(contracts, agent, coordinator, planner, relay, bench, netcheck). `rust-toolchain.toml` pins Rust 1.93.1.
+
+- Windows: Rust with the MSVC build tools. macOS: the Xcode command line tools.
+- No `protoc` needed: the contracts crate compiles its `.proto` files with `protox`, a pure-Rust compiler.
+- Build and test everything from the repo root: `cargo build` and `cargo test`.
+- First run: rustup installs 1.93.1 if the machine lacks a toolchain with that name, even when `stable` is
+  already 1.93.1. To reuse an existing 1.93.1 `stable` instead of downloading, run once:
+  `rustup toolchain link 1.93.1 "$(rustc +stable --print sysroot)"`.
+- Model files (`models/`, `*.gguf`) and `target/` are git-ignored.

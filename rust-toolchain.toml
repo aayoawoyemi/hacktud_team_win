@@ -1,0 +1,13 @@
+# CONCEPT: pins the Rust compiler every machine uses for this repo.
+# WHY: WP-12 R12.2. The Dell (Windows, MSVC) has 1.93.1; pinning the exact version means a Mac and the Dell
+#      compile the same code with the same compiler, so "works on my machine" can't come from rustc drift.
+#      Exact version, not "stable": "stable" moves every six weeks, and a new release mid-hackathon could
+#      break a build on one machine only.
+# DEPENDS ON: rustup. With rustup >= 1.28.1, a machine that lacks 1.93.1 downloads it on the first cargo
+#      command in this folder. A machine whose `stable` already is 1.93.1 still downloads it once, because
+#      rustup matches toolchains by name. To reuse an existing install instead, run once:
+#        rustup toolchain link 1.93.1 "$(rustc +stable --print sysroot)"
+# AFFECTS: every crate (edition 2024 in Cargo.toml needs >= 1.85; tonic 0.14 needs >= 1.88).
+# No targets or components listed: each machine builds natively (R12.4), and components would add downloads.
+[toolchain]
+channel = "1.93.1"

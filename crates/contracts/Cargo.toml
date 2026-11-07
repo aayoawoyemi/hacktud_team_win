@@ -1,0 +1,14 @@
+# CONCEPT: contracts crate, owned by WP-2. Shared contract types (the PRD §6 shapes) and parsers for
+#          llama.cpp's text output.
+# WHY: workspace skeleton from WP-12 R12.1. Every other crate exchanges these types, so they live in one crate
+#      that the agent and coordinator both compile (PRD §6, O-03: gRPC with tonic + protox).
+# DEPENDS ON: nothing yet. WP-2 adds tonic, prost, protox and serde on its own PR.
+# AFFECTS: agent, coordinator, planner, relay, bench, netcheck.
+[package]
+name = "contracts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]

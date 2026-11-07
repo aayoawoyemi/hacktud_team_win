@@ -1,0 +1,14 @@
+# CONCEPT: bench crate, owned by WP-8. Benchmark and demo runner: sends prompts to the endpoint and writes one BenchResult per request.
+# WHY: workspace skeleton from WP-12 R12.1; the demo's numbers (tokens/s, TTFT) must come from a repeatable runner, not a stopwatch.
+# DEPENDS ON: contracts (BenchResult, ClusterStatus).
+# AFFECTS: WP-13 runbook and WP-14 write-up (consume the numbers).
+# Library crate on purpose: O-02 (one CLI binary with subcommands vs one binary per crate) is still open.
+# Adding src/main.rs later (or a separate CLI crate) is a one-file change either way.
+[package]
+name = "bench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]

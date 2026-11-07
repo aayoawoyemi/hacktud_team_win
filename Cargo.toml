@@ -1,0 +1,52 @@
+# CONCEPT: the one Cargo workspace for all team Rust code (PRD §5.7). Every crate under crates/ is a member,
+#          so `cargo build` / `cargo test` at the repo root builds and tests everything with one lockfile.
+# WHY: WP-12 R12.1. One workspace means one dependency resolution (no two versions of tonic/prost fighting),
+#      one target/ folder, and one command for Aries to run on every PR. O-01 (Rust supervises the official
+#      llama.cpp binaries) means no C++ is built here; O-03 (gRPC via tonic + protox) means no protoc is needed.
+# DEPENDS ON: rust-toolchain.toml (pins the compiler, 1.93.1); crates/*/Cargo.toml.
+# AFFECTS: every crate. Adding a crate = add it to `members` below. Shared dependency versions live in
+#          [workspace.dependencies] so crates write `tonic = { workspace = true }` instead of their own version.
+#
+# Rejected: a glob `members = ["crates/*"]`. Explicit names make a missing or misnamed folder a loud error,
+# and keep the WP-5 planner hand-off visible (another agent moves his crate into crates/planner).
+
+[workspace]
+resolver = "3"
+members = [
+    "crates/contracts",   # WP-2: shared types (.proto), llama.cpp output parsers
+    "crates/agent",       # WP-3: node agent, supervises rpc-server
+    "crates/coordinator", # WP-4 (+ WP-7 status, WP-9 recovery modules)
+    "crates/planner",     # WP-5: GGUF reader + fit calculator (PLACEHOLDER until WP-5 moves in)
+    "crates/relay",       # WP-6: relay telemetry; proxy only if O-08 picks 6B
+    "crates/bench",       # WP-8: benchmark and demo runner
+    "crates/netcheck",    # WP-10: RTT and throughput tool
+]
+
+# CONCEPT: package metadata every member inherits with `version.workspace = true` etc.
+# WHY: one place to bump the version / edition. edition 2024 needs rustc >= 1.85; the pin is 1.93.1.
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+publish = false
+# No `license` key on purpose: the project licence is not decided (O-18 names the project first).
+
+# CONCEPT: the shared dependency catalog. Versions are chosen here once; member crates opt in.
+# WHY: tonic, prost and protox must agree on one prost version (0.14.x) or the generated code won't compile.
+#      tonic 0.14 split prost support into tonic-prost (runtime) and tonic-prost-build (codegen).
+# AFFECTS: crates/contracts today; agent and coordinator will use tonic + tokio when WP-3/WP-4 start.
+# Rejected: tonic TLS features (pull in rustls/ring or OpenSSL). R12.5 says no OpenSSL; the control plane
+#           runs on a private LAN for the demo (D-02), so plaintext gRPC is the assumption.
+[workspace.dependencies]
+contracts = { path = "crates/contracts" }
+tonic = { version = "0.14.9", default-features = false, features = ["transport", "codegen", "router"] }
+tonic-prost = "0.14.9"
+tonic-prost-build = "0.14.9"
+prost = "0.14.4"
+prost-build = "0.14.4"
+prost-types = "0.14.4"
+protox = "0.10.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+thiserror = "2.0.17"
+tokio = { version = "1.48", features = ["rt-multi-thread", "macros", "net", "time", "process", "io-util", "sync"] }

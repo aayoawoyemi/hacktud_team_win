@@ -1,0 +1,14 @@
+# CONCEPT: agent crate, owned by WP-3. The node agent that runs on every machine: probes hardware, registers with the coordinator, starts and supervises rpc-server.
+# WHY: workspace skeleton from WP-12 R12.1; O-01 = A: Rust supervises the official llama.cpp binaries as child processes; the agent is that supervisor on each node.
+# DEPENDS ON: contracts (NodeCapabilities, Heartbeat, Command, CommandResult).
+# AFFECTS: coordinator (consumes registration, heartbeats and command results).
+# Library crate on purpose: O-02 (one CLI binary with subcommands vs one binary per crate) is still open.
+# Adding src/main.rs later (or a separate CLI crate) is a one-file change either way.
+[package]
+name = "agent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
