@@ -1,0 +1,11 @@
+Network probe: waiting(POSIXErrorCode(rawValue: 50): Network is down); Optional(unsatisfied (Local network prohibited), interface: en7, ipv4)
+Network probe: preparing; Optional(unsatisfied (Local network prohibited), interface: en7, ipv4)
+Network probe: waiting(POSIXErrorCode(rawValue: 50): Network is down); Optional(unsatisfied (Local network prohibited), interface: en7, ipv4)
+Network probe: preparing; Optional(satisfied (Path is satisfied), interface: en7, ipv4, dns)
+Network probe: ready; Optional(satisfied (Path is satisfied), viable, interface: en7, ipv4, dns)
+Coordinator PID: 6174
+Network probe: cancelled; nil
+coordinator identity c200680a43d35a672ab6747c9a2ce4d812605bc5bb66a3c47e30bea70c19583d
+  (not admin yet? run: spacetime call -s local <db> add_admin '"0xc200680a43d35a672ab6747c9a2ce4d812605bc5bb66a3c47e30bea70c19583d"')
+waiting for 2 helper(s)... (press Enter to stop)
+SERVING on 8080: ["m5-air-174", "p5-air-204"]
