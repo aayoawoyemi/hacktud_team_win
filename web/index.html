@@ -29,7 +29,7 @@ Modes (auto):  SpacetimeDB answers -> "live" (tables).  Otherwise -> "direct" (l
   h1 { font-size:26px; margin:0; } h2 { font-size:15px; margin:0 0 10px; color:var(--dim); text-transform:uppercase; letter-spacing:.06em; }
   .badge { padding:4px 12px; border-radius:6px; font-weight:700; font-size:20px; background:var(--line); }
   .SERVING { background:var(--ok); color:#06210d; } .DEGRADED, .LAUNCHING, .STARTING_HELPERS, .PLANNED { background:var(--warn); color:#2b1d00; }
-  .FAILED { background:var(--bad); } .dim { color:var(--dim); } .mono { font-family: ui-monospace, Menlo, monospace; }
+  .STOPPED { background:var(--line); } .dim { color:var(--dim); } .mono { font-family: ui-monospace, Menlo, monospace; }
   main { display:grid; grid-template-columns: 1.3fr 1fr; gap:18px; padding:18px 24px; }
   section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
   #machines { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:12px; }
@@ -55,6 +55,7 @@ Modes (auto):  SpacetimeDB answers -> "live" (tables).  Otherwise -> "direct" (l
   <span id="state" class="badge">…</span>
   <span>model <b id="model" class="mono">-</b></span>
   <span class="dim">endpoint <span id="endpoint" class="mono">-</span></span>
+  <span id="note" class="dim"></span>
   <span class="dim" style="margin-left:auto">mode <b id="mode">-</b> · <span id="updated">-</span></span>
 </header>
 <main>
@@ -135,13 +136,16 @@ async function fromSpacetime() {
     const hb = hbs.find((h) => h.node_id === n.node_id);
     return { node_id: n.node_id, name: m.name || n.node_id, role: n.role, ip: n.addresses[0] || m.ip,
              budget_mib: gpuMib(n.devices) || m.budget_mib, state: n.state, online: n.online,
-             rpc: hb ? `${hb.rpc_state}${hb.rpc_port ? " :" + hb.rpc_port : ""}` : "" };
+             rpc: hb ? `${hb.rpc_state === "failed" ? "stopped" : hb.rpc_state}${hb.rpc_port ? " :" + hb.rpc_port : ""}` : "" };
   });
   // Main runs no agent; show it from MACHINES with llama-server's health as its state.
   for (const m of MACHINES.filter((x) => x.role === "main" && !seen.has(x.node_id)))
     list.unshift({ ...m, ip: m.ip || HOST, state: llamaUp ? "llama-server up" : "llama-server down", online: llamaUp, rpc: "llama-server" });
   return { mode: "live (SpacetimeDB)", state: st.cluster_state || "EMPTY", model: st.model_id, endpoint: st.endpoint || `${LLAMA}/v1`,
            plan, nodes: list,
+           // #33 (Aayo 11:20pm): a failed bring-up / llama-server exit sets STOPPED; the reason is the latest
+           // launch_failed or llama_server_exited event. Shown as a calm note next to the state, never as FAILED.
+           stopReason: events.filter((e) => e.kind === "launch_failed" || e.kind === "llama_server_exited").sort((a, b) => b.seq - a.seq)[0]?.message,
            events: events.sort((a, b) => b.seq - a.seq).slice(0, 40).map((e) => ({ at: micros(e.at), text: `${e.kind} ${e.node_id || e.plan_id} ${e.message}` })) };
 }
 
@@ -171,7 +175,10 @@ async function fromFixtures() {
 
 // ---- render ----
 function render(v) {
-  $("state").textContent = v.state; $("state").className = "badge " + v.state;
+  // Never FAILED on screen (#33, Aayo): an old pre-#33 row or the enum value itself reads as STOPPED.
+  const state = v.state === "FAILED" ? "STOPPED" : v.state;
+  $("state").textContent = state; $("state").className = "badge " + state;
+  $("note").textContent = state === "STOPPED" && v.stopReason ? `last stop: ${v.stopReason}` : "";
   $("model").textContent = v.model || "-"; $("endpoint").textContent = v.endpoint || "-";
   $("mode").textContent = v.mode; $("updated").textContent = new Date().toLocaleTimeString();
   $("machines").innerHTML = v.nodes.map((n) => {
