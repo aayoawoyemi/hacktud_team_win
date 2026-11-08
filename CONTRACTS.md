@@ -80,7 +80,7 @@ a protobuf round trip.
 | Rust enum | Values (JSON) | PRD |
 |---|---|---|
 | `ErrorCode` | `E_CONFIG`, `E_TRANSPORT`, `E_NODE_UNREACHABLE`, `E_RPC_SERVER_START`, `E_PORT_IN_USE`, `E_RPC_UNREACHABLE`, `E_VERSION_MISMATCH`, `E_MODEL_NOT_FOUND`, `E_GGUF_PARSE`, `E_MODEL_DOES_NOT_FIT`, `E_LAUNCH_FAILED`, `E_NOT_READY_TIMEOUT`, `E_PLACEMENT_MISMATCH`, `E_REQUEST_FAILED`, `E_INTERNAL` | §6.11 |
-| `EventKind` | `node_registered`, `node_capabilities_changed`, `node_lost`, `node_recovered`, `version_mismatch`, `rpc_server_started`, `rpc_server_exited`, `plan_created`, `plan_rejected`, `launch_started`, `llama_server_ready`, `llama_server_exited`, `placement_mismatch`, `request_failed`, `recovery_started`, `recovery_succeeded`, `recovery_failed`, `netcheck_result`, `bench_completed` | §6.10 |
+| `EventKind` | `node_registered`, `node_capabilities_changed`, `node_lost`, `node_recovered`, `version_mismatch`, `rpc_server_started`, `rpc_server_exited`, `plan_created`, `plan_rejected`, `launch_started`, `llama_server_ready`, `llama_server_exited`, `placement_mismatch`, `request_failed`, `recovery_started`, `recovery_succeeded`, `recovery_failed`, `netcheck_result`, `bench_completed`, `launch_failed` | §6.10 (+ `launch_failed`, Aayo 11:20pm: a failed bring-up is logged here and the cluster goes to STOPPED, never FAILED on screen) |
 | `RpcServerState` | `not_started`, `starting`, `running`, `exited`, `failed` | §6.2 |
 | `RelaySource` | `debug_log` (6A), `proxy` (6B); `null` when no relay telemetry | §6.2, O-08 |
 | `SplitStrategy` | `llama_default`, `proportional_usable`, `fastest_first`, `min_machines` (which one is used: O-07) | §6.5 |

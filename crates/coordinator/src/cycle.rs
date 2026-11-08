@@ -43,6 +43,9 @@ pub struct Config {
     pub port: u16,
     pub log_dir: PathBuf,
     pub ready_timeout_s: u64,
+    /// Address other machines use for llama-server, shown as the endpoint in cluster_status (Ponytail #6).
+    /// None: `host`, or main's LAN IP toward the first helper when `host` is a wildcard.
+    pub public_host: Option<String>,
 }
 
 impl Default for Config {
@@ -60,6 +63,7 @@ impl Default for Config {
             port: d::LLAMA_SERVER_PORT,
             log_dir: std::env::temp_dir(),
             ready_timeout_s: d::READY_TIMEOUT_S,
+            public_host: None,
         }
     }
 }
@@ -146,15 +150,37 @@ impl Coordinator {
 
     /// PRD §5.5 steps 2-6: plan, start helpers, launch, wait for /health, SERVING.
     pub fn bring_up(&mut self) -> Result<(), String> {
+        // Ponytail #2: a coordinator that was killed (or crashed mid-bring-up) leaves the row in SERVING,
+        // STARTING_HELPERS, ... and the module only allows PLANNED from EMPTY/STOPPED/FAILED. STOPPED is legal from
+        // any state, so reset first; the module also moves ACTIVE nodes back to READY.
+        if !matches!(
+            self.cluster_state().as_str(),
+            "" | "EMPTY" | "STOPPED" | "FAILED"
+        ) {
+            self.set_state("STOPPED", &[], "")?;
+        }
+        // Ponytail #3: only commands issued from here on count as this bring-up's failures.
+        let since = self
+            .conn
+            .db
+            .command()
+            .iter()
+            .map(|c| c.command_id)
+            .max()
+            .unwrap_or(0);
         let helpers = self.helpers();
         if helpers.is_empty() {
             return Err("E_MODEL_DOES_NOT_FIT: no helpers online".into());
         }
         let ids: Vec<String> = helpers.iter().map(|n| n.node_id.clone()).collect();
 
-        // 2. Plan.
+        // 2. Plan. Time-based id, so each run gets its own plan row and llama-server log (Ponytail #14).
         self.plans += 1;
-        self.plan_id = format!("plan-{:04}", self.plans);
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        self.plan_id = format!("plan-{secs}-{}", self.plans);
         let plan_json = plan_for(&self.plan_id, &self.cfg, &ids);
         let (cb, rx) = done();
         self.conn
@@ -190,7 +216,7 @@ impl Coordinator {
         }
         let deadline = Instant::now() + STEP_TIMEOUT;
         let rpc = loop {
-            if let Some(f) = self.failed_command(&ids) {
+            if let Some(f) = self.failed_command(&ids, since) {
                 return self.fail(&format!("E_RPC_SERVER_START: {f}"));
             }
             let addrs: Vec<Option<String>> = helpers.iter().map(|n| self.rpc_addr(n)).collect();
@@ -231,7 +257,7 @@ impl Coordinator {
         }
         self.server = Some(server);
         self.active = ids;
-        let endpoint = format!("http://{}:{}/v1", self.cfg.host, self.cfg.port);
+        let endpoint = format!("http://{}:{}/v1", self.public_host(), self.cfg.port);
         let active = self.active.clone();
         self.set_state("SERVING", &active, &endpoint)
     }
@@ -241,8 +267,11 @@ impl Coordinator {
         if let Some(status) = self.server.as_mut().and_then(LlamaServer::exited) {
             self.server = None;
             self.event("llama_server_exited", &status);
-            // D-14: no automatic recovery in the demo; the pool goes to FAILED and an operator restarts.
-            return self.fail(&format!("llama-server exited: {status}"));
+            // D-14: no automatic recovery in the demo; the pool goes to STOPPED (never FAILED on screen, Aayo
+            // 11:20pm) and an operator restarts. The reason is in the event log.
+            self.active.clear();
+            let _ = self.set_state("STOPPED", &[], "");
+            return Err(format!("llama-server exited: {status}"));
         }
         let joined: Vec<String> = self
             .helpers()
@@ -265,13 +294,18 @@ impl Coordinator {
     pub fn shutdown(&mut self) -> Result<(), String> {
         let helpers = std::mem::take(&mut self.active);
         self.stop_server()?;
+        // Ponytail #14: keep going past a helper that's offline, so the others still stop.
         for id in helpers {
             let (cb, rx) = done();
-            self.conn
+            let sent = self
+                .conn
                 .reducers
-                .issue_command_then(id, "stop_rpc_server".into(), "{}".into(), cb)
-                .map_err(|e| e.to_string())?;
-            wait(rx)?;
+                .issue_command_then(id.clone(), "stop_rpc_server".into(), "{}".into(), cb)
+                .map_err(|e| e.to_string())
+                .and_then(|_| wait(rx));
+            if let Err(e) = sent {
+                eprintln!("coordinator: stop_rpc_server {id}: {e}");
+            }
         }
         Ok(())
     }
@@ -297,13 +331,16 @@ impl Coordinator {
         Some(format!("{host}:{port}"))
     }
 
-    fn failed_command(&self, ids: &[String]) -> Option<String> {
+    fn failed_command(&self, ids: &[String], since: u64) -> Option<String> {
         self.conn
             .db
             .command()
             .iter()
             .find(|c| {
-                c.status == "failed" && c.kind == "start_rpc_server" && ids.contains(&c.node_id)
+                c.command_id > since
+                    && c.status == "failed"
+                    && c.kind == "start_rpc_server"
+                    && ids.contains(&c.node_id)
             })
             .map(|c| format!("{}: {}", c.node_id, c.error_message.unwrap_or_default()))
     }
@@ -325,10 +362,37 @@ impl Coordinator {
         wait(rx)
     }
 
+    /// A bring-up that didn't reach SERVING. Aayo (11:20pm): nothing on screen says FAILED; the cluster goes to
+    /// STOPPED and the reason goes to the event log as `launch_failed`.
     fn fail(&mut self, why: &str) -> Result<(), String> {
         self.server = None; // kill-on-drop
-        let _ = self.set_state("FAILED", &[], "");
+        self.event("launch_failed", why);
+        let _ = self.set_state("STOPPED", &[], "");
         Err(why.to_string())
+    }
+
+    /// Host other machines should use for llama-server (Ponytail #6): `public_host`, else `host` unless it's a
+    /// wildcard, else main's LAN IP toward the first helper (a UDP connect sends no packet, it only picks the route).
+    fn public_host(&self) -> String {
+        if let Some(h) = &self.cfg.public_host {
+            return h.clone();
+        }
+        if !matches!(self.cfg.host.as_str(), "0.0.0.0" | "::") {
+            return self.cfg.host.clone();
+        }
+        let toward = self
+            .active
+            .iter()
+            .chain(self.helpers().iter().map(|n| &n.node_id))
+            .find_map(|id| self.conn.db.node().node_id().find(id))
+            .and_then(|n| n.addresses.first().cloned());
+        toward
+            .and_then(|ip| {
+                let s = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+                s.connect((ip.as_str(), 9)).ok()?;
+                Some(s.local_addr().ok()?.ip().to_string())
+            })
+            .unwrap_or_else(|| "127.0.0.1".into())
     }
 
     fn event(&self, kind: &str, message: &str) {
