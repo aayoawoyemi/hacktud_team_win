@@ -1,7 +1,7 @@
 # CONCEPT: agent crate, owned by WP-3. The node agent that runs on every machine: probes hardware, registers with the coordinator, starts and supervises rpc-server.
 # WHY: workspace skeleton from WP-12 R12.1; O-01 = A: Rust supervises the official llama.cpp binaries as child processes; the agent is that supervisor on each node.
 # DEPENDS ON: tokio (child processes, TCP probe), sysinfo (CPU/RAM/host), serde + toml (config, O-24), serde_json (probe printout).
-#             contracts (WP-2) is NOT a dependency yet: PR #18 is reworking it. src/parse.rs mirrors its parsers until then.
+#             contracts (WP-2) + spacetimedb-sdk: the D-13 control-plane loop (src/spacetime.rs). src/parse.rs predates contracts::parsers.
 # AFFECTS: coordinator (consumes registration, heartbeats and command results through SpacetimeDB, D-13).
 # Library crate on purpose: O-02 (one CLI binary with subcommands vs one binary per crate) is still open.
 # `examples/probe.rs` is the human-readable probe for now (R3.2): `cargo run -p agent --example probe`.
@@ -17,5 +17,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sysinfo = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
 toml = { workspace = true }
+contracts = { workspace = true }
+spacetimedb-sdk = { workspace = true }

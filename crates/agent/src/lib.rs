@@ -26,6 +26,7 @@ pub mod parse;
 pub mod port;
 pub mod probe;
 pub mod ring;
+pub mod spacetime;
 pub mod supervisor;
 
 pub use config::AgentConfig;
