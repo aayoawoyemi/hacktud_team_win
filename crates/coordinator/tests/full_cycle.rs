@@ -372,6 +372,27 @@ fn full_cycle_two_helpers_then_join() {
     assert_eq!(c.cfg.model_path, env("MODEL"));
     assert!(!ask(port, "Name one animal.").is_empty());
 
+    // F2 (Aries 07:30Z item 3 / 07:50Z): a helper's rpc-server dies while its agent lives. llama-server breaks on
+    // the next request and exits; the coordinator must make one bring-up with the online helpers (the agent
+    // restarts its rpc-server on command) instead of staying STOPPED until someone restarts it.
+    println!("6g. helper rpc-server crash -> pool recovers by itself");
+    let pid = c
+        .conn
+        .db
+        .heartbeat()
+        .node_id()
+        .find(&"helper-c".to_string())
+        .and_then(|h| h.rpc_pid)
+        .expect("helper-c rpc pid");
+    Command::new("kill").args(["-9", &pid.to_string()]).status().unwrap();
+    let _ = ask(port, "Say ok."); // the request that finds the dead RPC link
+    let t3 = Instant::now();
+    wait_until("SERVING again after rpc-server crash", 240, || {
+        let _ = c.tick(); // before the fix this errors once and leaves the pool STOPPED
+        c.cluster_state() == "SERVING" && c.active().len() == 3
+    });
+    println!("  recovered in {:.1} s", t3.elapsed().as_secs_f64());
+    assert!(!ask(port, "Name one bird.").is_empty());
     // Aries 10:48Z self-heal: an rpc-server held by a dead client (a helper that slept through the old llama-server's
     // exit; .204, Sun 4:45am) accepts TCP but never serves, and the next launch aborted at the RPC handshake.
     // Deterministic setup: llama-server crashes (the rpc-servers are then free), a raw TCP client connects to
@@ -387,9 +408,9 @@ fn full_cycle_two_helpers_then_join() {
     )
     .unwrap();
     Command::new("kill").args(["-9", pid.trim()]).status().unwrap();
-    wait_until("llama-server exit noticed", 30, || {
-        let _ = c.tick();
-        !c.is_serving()
+    // No tick here: with #52 a tick would recover at once, before the stuck helper is set up.
+    wait_until("llama-server gone", 30, || {
+        !accepting(&format!("127.0.0.1:{port}"))
     });
     let dead_client = std::net::TcpStream::connect("127.0.0.1:50072").expect("dead client connects");
     sleep(Duration::from_secs(1));
@@ -423,9 +444,9 @@ fn full_cycle_two_helpers_then_join() {
     )
     .unwrap();
     Command::new("kill").args(["-9", pid.trim()]).status().unwrap();
-    wait_until("llama-server exit noticed", 30, || {
-        let _ = c.tick();
-        !c.is_serving()
+    // No tick here: with #52 a tick would recover at once, before the stuck helper is set up.
+    wait_until("llama-server gone", 30, || {
+        !accepting(&format!("127.0.0.1:{port}"))
     });
     let mut orphan = Command::new(format!("{bin}/rpc-server"))
         .args(["-H", "127.0.0.1", "-p", "50075", "-d", "MTL0"])
@@ -455,6 +476,32 @@ fn full_cycle_two_helpers_then_join() {
     );
     assert!(!ask(port, "Name one lake.").is_empty());
     drop(dead_client);
+
+    // Aries #52 review: recovery must not be gated on min_helpers (the live config has 2; tonight .204 dropped and
+    // 1 < 2 left the pool STOPPED). Here min_helpers is above what remains after helper-c leaves for good.
+    println!("6i. helper leaves for good with min_helpers above the rest -> recovers on the remaining helpers");
+    let before = c.active().len(); // 4 after 6k (helper-d joined)
+    c.cfg.min_helpers = before;
+    drop(cc); // SIGINT: the agent stops its rpc-server, then disconnects (LOST)
+    wait_until("helper-c LOST", 30, || {
+        let _ = c.tick();
+        node_states(&c)
+            .iter()
+            .any(|(id, st)| id == "helper-c" && st == "LOST")
+    });
+    let _ = ask(port, "Say ok."); // finds the dead RPC link; llama-server exits
+    wait_until("SERVING on the remaining helpers", 240, || {
+        let _ = c.tick();
+        c.cluster_state() == "SERVING"
+            && c.active().len() == before - 1
+            && !c.active().contains(&"helper-c".to_string())
+    });
+    assert!(!ask(port, "Name one river.").is_empty());
+    let cc = Agent::spawn("helper-c", 50074, &bin, &log_dir);
+    wait_until("helper-c rejoins -> SERVING with all again", 180, || {
+        c.tick().expect("tick");
+        c.cluster_state() == "SERVING" && c.active().len() == before
+    });
 
     // Aries/P2 #51 review item 2: a request left in the db from before a restart must not override the config.
     println!("6h. restart: a stale model request is ignored, the configured default loads");

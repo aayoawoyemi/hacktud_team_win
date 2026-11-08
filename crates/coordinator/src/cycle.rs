@@ -309,10 +309,9 @@ impl Coordinator {
         }
         // Ponytail #3: only commands issued from here on count as this bring-up's failures.
         let since = self.max_command_id();
+        // Zero helpers is allowed: recovery and model switches may run on main alone (Aries #52 review: the 12B fits on
+        // the M3). The first bring-up still waits for min_helpers in the binary's loop.
         let helpers = self.helpers();
-        if helpers.is_empty() {
-            return Err("E_MODEL_DOES_NOT_FIT: no helpers online".into());
-        }
         let ids: Vec<String> = helpers.iter().map(|n| n.node_id.clone()).collect();
 
         // 2. Plan. Time-based id, so each run gets its own plan row and llama-server log (Ponytail #14).
@@ -498,9 +497,38 @@ impl Coordinator {
         if let Some(status) = self.server.as_mut().and_then(LlamaServer::exited) {
             self.server = None;
             self.event("llama_server_exited", &status);
-            // D-14: no automatic recovery in the demo; the pool goes to STOPPED (never FAILED on screen, Aayo
-            // 11:20pm) and an operator restarts. The reason is in the event log.
             self.active.clear();
+            // F2 (Aries 07:30Z item 3, approved 07:50Z): llama-server dies when a helper's rpc-server dies under it.
+            // Make ONE bring-up with the helpers still online (their agents restart rpc-server on command; a LOST
+            // helper is left out) before giving up. Only if that fails does the pool go to STOPPED (never FAILED on
+            // screen, Aayo 11:20pm) and wait for an operator; the reasons are in the event log.
+            // No min_helpers gate (Aries #52 review, 07:30Z): that key only guards the first load; recovery runs with
+            // whatever helpers are online, zero included. A model that no longer fits fails in llama-server's load and
+            // is logged (shortcut: plan_for says fits=true until WP-5's planner #20 is wired, so no fast refusal yet).
+            {
+                self.event("recovery_started", "llama-server exited; one bring-up with the online helpers");
+                // Heartbeats lag a crash by up to a beat: the dead helper still reads `running` (found by full_cycle
+                // 6g). Wait (<= 10 s) until no online helper claims a running rpc-server whose port is closed, so
+                // launch() restarts the dead ones instead of launching against them.
+                let t = Instant::now();
+                while t.elapsed() < Duration::from_secs(10)
+                    && self
+                        .helpers()
+                        .iter()
+                        .any(|n| self.rpc_addr(n).is_some_and(|a| !launch::accepting(&a)))
+                {
+                    sleep(POLL);
+                }
+                // launch(), not bring_up(): recover the model that was serving; a pending model request is taken by
+                // the next tick through switch_model, with its own restore.
+                match self.launch() {
+                    Ok(()) => {
+                        self.event("recovery_succeeded", "pool serving again");
+                        return Ok(());
+                    }
+                    Err(e) => self.event("recovery_failed", &e),
+                }
+            }
             let _ = self.set_state("STOPPED", &[], "");
             return Err(format!("llama-server exited: {status}"));
         }
