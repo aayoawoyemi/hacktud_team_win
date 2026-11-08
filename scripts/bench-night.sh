@@ -75,6 +75,7 @@ stop_all() {
   while port_busy && [ "$i" -lt 30 ]; do sleep 1; i=$((i + 1)); done
   if port_busy; then pkill -9 -f "$LLAMA_SERVER" 2>/dev/null; sleep 2; fi
   if [ -n "$LPID" ]; then kill -9 "$LPID" 2>/dev/null; fi
+  pkill -f "sleep 864001" 2>/dev/null
   LPID=""
 }
 trap 'log "interrupted"; stop_all; exit 130' INT TERM
@@ -173,7 +174,9 @@ for RUN in $RUN_LIST; do
         [ -n "$FA" ] && echo "flash_attn = \"$FA\""
         [ -n "$EXTRA" ] && echo "extra_args = $(toml_list $EXTRA)"
       } > "$DIR/coordinator.toml"
-      SPACETIME_TOKEN="$SPACETIME_TOKEN" "$COORDINATOR" "$DIR/coordinator.toml" > "$DIR/coordinator.log" 2>&1 &
+      # The coordinator stops on Enter/EOF on stdin, and bash gives background jobs stdin=/dev/null (P2, #46).
+      # A never-writing pipe keeps stdin open; $! is still the coordinator's pid.
+      sleep 864001 | SPACETIME_TOKEN="$SPACETIME_TOKEN" "$COORDINATOR" "$DIR/coordinator.toml" > "$DIR/coordinator.log" 2>&1 &
       LPID=$!; READY_MAX=1200; [ "$SIZE" = 26 ] && READY_MAX=2400; NODES="$HELPER_NODES $MAIN_NODE"
     fi
 
