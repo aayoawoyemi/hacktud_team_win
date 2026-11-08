@@ -743,12 +743,16 @@ const FLOW = (() => {
         ctx.beginPath(); ctx.moveTo(...pts[0]); for (const q of pts.slice(1)) ctx.lineTo(...q); ctx.stroke();
         // the token (or a short train for a prompt / backlog), each dot with a two-step fading tail
         for (let k = 0; k < run.train; k++) {
-          const d = ease(p) * len - k * 9;
+          const d = ease(p) * len - k * 13;
           if (d < 0) continue;
           for (let tail = 2; tail >= 0; tail--) {
-            const [x, y] = pointAt(pts, Math.max(0, d - tail * 4));
-            ctx.fillStyle = INK + (tail ? 0.22 / tail : 0.95) + ')';
-            ctx.beginPath(); ctx.arc(x, y, tail ? 1.4 : 2.2, 0, Math.PI * 2); ctx.fill();
+            const [x, y] = pointAt(pts, Math.max(0, d - tail * 6));
+            const r = tail ? 2.2 : 3.6;
+            // a black ring cuts the dot out of the white line it rides on, so the token stays readable
+            ctx.fillStyle = '#000';
+            ctx.beginPath(); ctx.arc(x, y, r + 2, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = INK + (tail ? 0.3 / tail : 1) + ')';
+            ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
           }
         }
         if (p >= 1) {
