@@ -1,0 +1,20 @@
+bench: 3 prompt(s) x (1 warm-up + 3 runs) against http://127.0.0.1:8080 [single_fit]
+  short warmup #1: TTFT 361 ms, 16.2 tok/s, 128 tokens, 8258 ms
+  short run #1: TTFT 332 ms, 16.1 tok/s, 128 tokens, 8266 ms
+  short run #2: TTFT 328 ms, 16.1 tok/s, 128 tokens, 8264 ms
+  short run #3: TTFT 330 ms, 15.2 tok/s, 128 tokens, 8738 ms
+  long warmup #1: TTFT 561 ms, 15.4 tok/s, 512 tokens, 33887 ms
+  long run #1: TTFT 653 ms, 15.0 tok/s, 512 tokens, 34817 ms
+  long run #2: TTFT 867 ms, 10.3 tok/s, 512 tokens, 50552 ms
+  long run #3: TTFT 1183 ms, 9.3 tok/s, 512 tokens, 56016 ms
+  edit warmup #1: TTFT 3556 ms, 9.8 tok/s, 313 tokens, 35631 ms
+  edit run #1: TTFT 3770 ms, 9.4 tok/s, 313 tokens, 37229 ms
+  edit run #2: TTFT 3623 ms, 8.3 tok/s, 313 tokens, 41286 ms
+  edit run #3: TTFT 3740 ms, 9.3 tok/s, 313 tokens, 37503 ms
+| scenario | model | machines | prompt | ok/runs | TTFT ms (median) | gen tok/s (median, min-max) | total ms (median) | size ratio |
+|---|---|---|---|---|---|---|---|---|
+| single_fit | gemma-4-12b-it-q4_k_m | 1 | short | 3/3 | 330 | 16.1 (15.2-16.1) | 8266 | n/a |
+| single_fit | gemma-4-12b-it-q4_k_m | 1 | long | 3/3 | 867 | 10.3 (9.3-15.0) | 50552 | n/a |
+| single_fit | gemma-4-12b-it-q4_k_m | 1 | edit | 3/3 | 3740 | 9.3 (8.3-9.4) | 37503 | n/a |
+
+results in /Users/preston/Documents/code/hackathon/hacktud_team_win-wt/bench-night/test-runs/bench/night-20261108-0408/B1/bench-out
