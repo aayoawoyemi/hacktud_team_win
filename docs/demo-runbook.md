@@ -5,7 +5,7 @@ CONCEPT: the demo runbook (WP-13): cold start → 12B on 3 MacBook Airs → swit
 WHY: Checkpoint C = "the full demo runs from cold, following docs/demo-runbook.md". D-14: the demo shows joins.
      Aayo 7:00am Sun: final scope = B3 + rehearsal of model switch and live join (B5 dropped, Aries 8:00am).
 DEPENDS ON: main ≥ a4cb62f (#49 rejoin, #51 model switch, #52 recovery, #53/#55 stuck rpc-server self-heal),
-     docs/network.md (wiring, firewall), web/oasis-v2.html (dashboard), scripts/bench-night.sh (bench), #11 logs.
+     docs/network.md (wiring, firewall), web/oasis.html (dashboard, v1), scripts/bench-night.sh (bench), #11 logs.
 AFFECTS: the video script (WP-14) follows section 4. Change this file when a command, config key or IP changes.
 STATUS: Agent P2, Sun 7:10am CT. Replaces the Sat 9:30pm draft (which assumed the M5 as main and Part 2 unknown).
 -->
@@ -58,8 +58,9 @@ the layers they receive.
   `"-ctk","q8_0","-ctv","q8_0"` as in B3; without `--no-mmap` the 26B stalls on the 16 GB M3), and a `[models]` table with the 12B and 26B ids → paths.
   First run prints an `add_admin` command: run it once.
 
-**Dashboard:** `http://192.168.8.174:8000/web/oasis-v2.html?stdb=http://192.168.8.113:3000&llama=http://192.168.8.113:8080`
-(or the IP of whichever Mac serves :8000). Live mode: topology, events, chat with "computed on N machines", model select.
+**Dashboard (v1, Aayo Sun 8:25am):** `http://192.168.8.174:8000/web/oasis.html?stdb=http://192.168.8.113:3000&llama=http://192.168.8.113:8080`
+(or the IP of whichever Mac serves :8000). Live mode: topology, events, token flow, `ask` with TTFT and tok/s. v1 has no
+model menu: switch models with the `request_model` call below (or the menu in `oasis-v2.html`, same reducer).
 
 **Pre-warm before recording:** switch to the 26B once and back (section 4.2), so the helpers' `-c` caches hold its
 layers. VERIFY how much a warm switch saves (cold 12B → 26B = 303 s).
@@ -68,7 +69,9 @@ layers. VERIFY how much a warm switch saves (cold 12B → 26B = 303 s).
 
 1. **"Three laptops, one AI."** Dashboard: three nodes connected, SERVING, Gemma 12B. Ask in the chat; the answer
    ends with `computed on 3 machines: m3-air-113 + m5-air-174 + p5-air-204` and its tok/s (~11).
-2. **"A model none of them can hold."** Model select → `gemma-4-26B-A4B-it-Q8_0`. Status: `switching to … (launching)`
+2. **"A model none of them can hold."** In a Terminal on camera: `curl -s -X POST -H 'Content-Type: application/json'
+   http://192.168.8.113:3000/v1/database/pool/call/request_model -d '["gemma-4-26B-A4B-it-Q8_0"]'` (one call to the Oasis
+   protocol; the dashboard shows the re-plan). Status: `switching to … (launching)`
    → `now serving …`. Ask again. Say the honest ratio: 25.0 GiB model, biggest Mac holds 17.8 GiB (1.4x), and the
    internet is off (router WAN unplugged, D-02). The load is minutes cold: cut it in the video, or pre-warm.
 3. **"A laptop joins."** On .174: Ctrl-C its agent (the pool keeps serving on the other two; #52), then start it
