@@ -1,0 +1,20 @@
+bench: 3 prompt(s) x (1 warm-up + 3 runs) against http://127.0.0.1:8080 [pool_part2]
+  short warmup #1: TTFT 2014 ms, 12.4 tok/s, 128 tokens, 12327 ms
+  short run #1: TTFT 756 ms, 12.1 tok/s, 128 tokens, 11292 ms
+  short run #2: TTFT 603 ms, 12.6 tok/s, 128 tokens, 10794 ms
+  short run #3: TTFT 561 ms, 12.5 tok/s, 128 tokens, 10818 ms
+  long warmup #1: TTFT 976 ms, 12.1 tok/s, 512 tokens, 43180 ms
+  long run #1: TTFT 1067 ms, 12.5 tok/s, 512 tokens, 42072 ms
+  long run #2: TTFT 627 ms, 12.4 tok/s, 512 tokens, 41828 ms
+  long run #3: TTFT 637 ms, 12.6 tok/s, 512 tokens, 41322 ms
+  edit warmup #1: TTFT 1556 ms, 12.5 tok/s, 313 tokens, 26671 ms
+  edit run #1: TTFT 2085 ms, 12.6 tok/s, 313 tokens, 27000 ms
+  edit run #2: TTFT 1530 ms, 12.4 tok/s, 313 tokens, 26853 ms
+  edit run #3: TTFT 1854 ms, 12.6 tok/s, 313 tokens, 26776 ms
+| scenario | model | machines | prompt | ok/runs | TTFT ms (median) | gen tok/s (median, min-max) | total ms (median) | size ratio |
+|---|---|---|---|---|---|---|---|---|
+| pool_part2 | gemma-4-26b-a4b-it-q8_0 | 3 | short | 3/3 | 603 | 12.5 (12.1-12.6) | 10818 | 1.40 |
+| pool_part2 | gemma-4-26b-a4b-it-q8_0 | 3 | long | 3/3 | 637 | 12.5 (12.4-12.6) | 41828 | 1.40 |
+| pool_part2 | gemma-4-26b-a4b-it-q8_0 | 3 | edit | 3/3 | 1854 | 12.6 (12.4-12.6) | 26853 | 1.40 |
+
+results in /Users/preston/Documents/hackathon/p4-runtime/bench-results/B3-live

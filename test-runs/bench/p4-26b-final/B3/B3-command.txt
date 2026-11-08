@@ -1,0 +1,1 @@
+ 8286 /Users/preston/Documents/hackathon/p4-runtime/llama/llama-b8665/llama-server -m /Users/preston/Documents/hackathon/p4-runtime/downloads/gemma-4-26B-A4B-it-Q8_0.gguf --rpc 192.168.8.174:50052,192.168.8.204:50052 -ngl 99 -c 4096 --host 0.0.0.0 --port 8080 -fa on --metrics -ctk q8_0 -ctv q8_0 --no-mmap
