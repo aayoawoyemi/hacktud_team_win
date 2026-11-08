@@ -3,7 +3,7 @@ CONCEPT: the demo runbook (WP-13): cold start → 12B on 3 MacBook Airs → swit
          live join → numbers → clean stop. Everything here was run on the real machines Sat night / Sun morning,
          except lines marked VERIFY.
 WHY: Checkpoint C = "the full demo runs from cold, following docs/demo-runbook.md". D-14: the demo shows joins.
-     Aayo 7:00am Sun: final scope = B3 + B5 + rehearsal of model switch and live join.
+     Aayo 7:00am Sun: final scope = B3 + rehearsal of model switch and live join (B5 dropped, Aries 8:00am).
 DEPENDS ON: main ≥ a4cb62f (#49 rejoin, #51 model switch, #52 recovery, #53/#55 stuck rpc-server self-heal),
      docs/network.md (wiring, firewall), web/oasis-v2.html (dashboard), scripts/bench-night.sh (bench), #11 logs.
 AFFECTS: the video script (WP-14) follows section 4. Change this file when a command, config key or IP changes.
@@ -82,8 +82,7 @@ layers. VERIFY how much a warm switch saves (cold 12B → 26B = 303 s).
 | 12B, one M5 Air alone | ~16 tok/s cold, **~8-9 tok/s sustained** (fanless; throttles after ~1.5 min) | night-20261108-0408 |
 | 12B, 3-Mac pool (FA + q8 KV) | **~11 tok/s, flat over 5.5 min** (TTFT 0.6-0.7 s short/long) | p4-20261108-0150-existing-fa-q8 (#54) |
 | ngram speculative decoding, rewrite task, one Air | **1.6-1.7x** (edit: 7.2 → 12.4, 9 → 14.5 tok/s; 79% draft acceptance); no gain on new text | night-20261108-0329 / -0408 |
-| **26B on the 3-Mac pool (B3)** | **12.5 tok/s (12.1-12.6), flat over 5 min; TTFT 0.6 s**; 9/9 ok; FA + q8 KV + `--no-mmap`; M3 5718 MiB, each M5 9941 MiB | p4-26b-final (#57) |
-| 26B + ngram (B5) | quote only if faster than B3 | #11 |
+| **26B on the 3-Mac pool (B3)** | **12.5 tok/s (12.1-12.6), flat over 5 min; TTFT 0.6 s**; 9/9 ok; FA + q8 KV + `--no-mmap`; M3 5718 MiB, each M5 9941 MiB | test-runs/bench/p4-26b-final (#57) |
 
 Honest framing: cold, one Air is faster on the 12B; sustained, three Airs beat one throttled Air (~11 vs 8-9), with
 the caveat that the pool's main was the M3 and had FA + q8 KV on. The 26B is the point: no single Mac can hold it.
