@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<!--
+CONCEPT: live token-flow view of the pool: every token streamed by llama-server is drawn travelling the real path
+         main (embed) -> helper A (its layers) -> main -> helper B (its layers) -> main (last layers + pick token).
+         Link labels show MEASURED bytes/s per main<->helper TCP link (flowstats.py, nettop).
+WHY: show the audience that one model runs across machines and every token visits every machine (llama.cpp RPC
+     splits by LAYERS, star topology through main). Path and order are real; the animation is slowed down (slider)
+     and the time share per hop is approximate (we can't time each hop per token without RPC debug logs).
+DEPENDS ON: llama-server on main :8080 (stream), flowstats.py :8001 (optional), MACHINES below = run-002 load log
+            (device order RPC0, RPC1, MTL0; layers by KV buffer sizes).
+AFFECTS: nothing; sends one chat request per Send.
+Open: http://<main>:8000/web/flow.html
+-->
+<html lang="en"><head><meta charset="utf-8"><title>Token flow</title>
+<style>
+  body { margin:0; background:#0e1116; color:#e8ecf2; font:17px/1.4 -apple-system, system-ui, sans-serif; }
+  header { padding:12px 22px; border-bottom:1px solid #2a303a; display:flex; gap:18px; align-items:center; flex-wrap:wrap; }
+  h1 { margin:0; font-size:24px; } .dim { color:#8b95a5; } .mono { font-family: ui-monospace, Menlo, monospace; }
+  main { display:grid; grid-template-columns: 1.5fr 1fr; gap:16px; padding:16px 22px; }
+  section { background:#171b22; border:1px solid #2a303a; border-radius:10px; padding:14px; }
+  svg { width:100%; height:auto; display:block; }
+  #out { white-space:pre-wrap; min-height:160px; max-height:330px; overflow:auto; background:#0b0e13; padding:10px; border-radius:6px; }
+  #out .new { background:#58a6ff44; border-radius:3px; }
+  form { display:flex; gap:8px; margin-top:10px; }
+  input[type=text] { flex:1; font:inherit; padding:9px; background:#0b0e13; color:#e8ecf2; border:1px solid #2a303a; border-radius:6px; }
+  button { font:inherit; padding:9px 16px; background:#58a6ff; color:#06121f; border:0; border-radius:6px; font-weight:700; }
+  .stats b { font-size:26px; } .stats { display:flex; gap:24px; margin-bottom:10px; }
+</style></head>
+<body>
+<header><h1>Token flow</h1>
+  <span class="dim">every token visits every machine · path and order are real · time share per hop approximate</span>
+  <label style="margin-left:auto">slow motion <input id="slow" type="range" min="1" max="60" value="10"> <b id="slowv">10×</b></label>
+</header>
+<main>
+  <section><svg id="svg" viewBox="0 0 900 560"></svg>
+    <div class="dim" style="font-size:14px">Dot = one token's hidden state (896 numbers ≈ 3.5 KB) on its way through the layers.
+      Link numbers = measured traffic on that TCP link (nettop, 1 s). Queue = tokens already generated, waiting to be replayed.</div></section>
+  <section>
+    <div class="stats"><div><b id="tps">-</b><div class="dim">tok/s (real)</div></div>
+      <div><b id="ms">-</b><div class="dim">ms / token (real)</div></div><div><b id="q">0</b><div class="dim">queue</div></div></div>
+    <div id="out" class="dim">Ask something; each word appears when its dot comes home.</div>
+    <form id="ask"><input id="prompt" type="text" value="Name three planets and one fact about each." autocomplete="off"><button>Send</button></form>
+  </section>
+</main>
+<script>
+// CONCEPT: the machines and layer ranges of run-002 (llama.cpp default split; device order RPC0, RPC1, then main).
+const MACHINES = {
+  main: { name: "M5 (main)",  ip: "192.168.8.174", x: 450, y: 450, layers: "embed · layers 16-23 · output" },
+  a:    { name: "M3 Air",     ip: "192.168.8.113", x: 170, y: 120, layers: "layers 0-6" },
+  b:    { name: "M5 Air",     ip: "192.168.8.204", x: 730, y: 120, layers: "layers 7-15" },
+};
+// The real per-token path. Weights = rough time share (network hop 1, compute ~ layers/4). Approximate, see header.
+const PATH = [["main", 1, "embed"], ["a", 1.75, "L0-6"], ["main", 0.2, "copy"], ["b", 2.25, "L7-15"], ["main", 2.25, "L16-23 + pick"]];
+const HOST = location.hostname || "127.0.0.1";
+const LLAMA = `http://${HOST}:8080`, STATS = `http://${HOST}:8001/stats`;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+const count = { main: 0, a: 0, b: 0 };
+
+// ---- static diagram ----
+function link(k) { const m = MACHINES[k], c = MACHINES.main;
+  return `<line x1="${c.x}" y1="${c.y}" x2="${m.x}" y2="${m.y}" stroke="#2a303a" stroke-width="6"/>
+          <text id="lbl-${k}" x="${(c.x + m.x) / 2 + (k === "a" ? -150 : 20)}" y="${(c.y + m.y) / 2}" fill="#8b95a5" font-size="16" class="mono">-</text>`; }
+function box(k) { const m = MACHINES[k];
+  return `<g><rect x="${m.x - 125}" y="${m.y - 58}" width="250" height="116" rx="10" fill="#171b22" stroke="#58a6ff" stroke-width="2" id="box-${k}"/>
+    <text x="${m.x}" y="${m.y - 28}" text-anchor="middle" font-size="22" font-weight="700" fill="#e8ecf2">${m.name}</text>
+    <text x="${m.x}" y="${m.y - 4}" text-anchor="middle" font-size="15" fill="#8b95a5" class="mono">${m.ip}</text>
+    <text x="${m.x}" y="${m.y + 20}" text-anchor="middle" font-size="16" fill="#e8ecf2">${m.layers}</text>
+    <text x="${m.x}" y="${m.y + 44}" text-anchor="middle" font-size="15" fill="#3fb950" id="cnt-${k}">0 tokens</text></g>`; }
+$("svg").innerHTML = link("a") + link("b") + box("a") + box("b") + box("main") +
+  `<g id="dot" visibility="hidden"><circle r="16" fill="#58a6ff"/><text id="dottxt" y="-24" text-anchor="middle" font-size="20" font-weight="700" fill="#e8ecf2"></text></g>`;
+
+// ---- live link traffic (optional) ----
+async function stats() {
+  try {
+    const s = await (await fetch(STATS, { signal: AbortSignal.timeout(1500) })).json();
+    for (const k of ["a", "b"]) {
+      const l = s.links[`${MACHINES[k].ip}:50052`];
+      $("lbl-" + k).textContent = l ? `↑${(l.out_bps / 1024).toFixed(1)} ↓${(l.in_bps / 1024).toFixed(1)} KB/s` : "no link";
+    }
+  } catch { for (const k of ["a", "b"]) $("lbl-" + k).textContent = "(flowstats off)"; }
+}
+setInterval(stats, 1000); stats();
+
+// ---- replay queue: each real token plays the path in slow motion, one at a time (like the real pipeline) ----
+const queue = []; let playing = false, realMs = 30;
+$("slow").oninput = () => $("slowv").textContent = $("slow").value + "×";
+function pos(k) { return [MACHINES[k].x, MACHINES[k].y + (k === "main" ? -82 : 82)]; }   // stop at the box edge facing the links, not on the label
+function play() {
+  if (playing || !queue.length) return;
+  playing = true; const tok = queue.shift(); $("q").textContent = queue.length;
+  const total = Math.min(4000, Math.max(250, realMs * Number($("slow").value) * (tok.batch ? 3 : 1)));
+  const W = PATH.reduce((s, p) => s + p[1], 0);
+  $("dottxt").textContent = tok.text.trim() || "␣"; $("dot").setAttribute("visibility", "visible");
+  let i = 0, t0 = performance.now(), from = pos("main");
+  (function step(now) {
+    const [k, w] = PATH[i], to = pos(k), d = (w / W) * total, f = Math.min(1, (now - t0) / d);
+    const x = from[0] + (to[0] - from[0]) * f, y = from[1] + (to[1] - from[1]) * f;
+    $("dot").setAttribute("transform", `translate(${x},${y})`);
+    for (const m in MACHINES) $("box-" + m).setAttribute("stroke", m === k && f > 0.5 ? "#3fb950" : "#58a6ff");
+    if (f < 1) return requestAnimationFrame(step);
+    count[k] += (k !== "main" || i === 0) ? (tok.n || 1) : 0;
+    $("cnt-" + k).textContent = `${count[k]} tokens`;
+    from = to; t0 = now; i++;
+    if (i < PATH.length) return requestAnimationFrame(step);
+    if (!tok.batch) { const s = document.createElement("span"); s.className = "new"; s.textContent = tok.text; $("out").append(s); setTimeout(() => s.className = "", 400); $("out").scrollTop = 1e9; }
+    playing = false; $("dot").setAttribute("visibility", "hidden"); play();
+  })(t0);
+}
+
+// ---- remote trigger (test runs): when web/trigger.json gets a new id, this page sends its prompt itself, so the
+// person watching sees a run Agent P1 starts. The id present at page load is ignored (no replay on reload).
+let trigId;
+setInterval(async () => {
+  try {
+    const t = await (await fetch("trigger.json?" + Date.now())).json();
+    if (trigId === undefined) { trigId = t.id; return; }
+    if (t.id !== trigId) { trigId = t.id; $("prompt").value = t.prompt; maxTokens = t.max_tokens || 96; $("ask").requestSubmit(); }
+  } catch { if (trigId === undefined) trigId = null; }
+}, 1000);
+let maxTokens = 96;
+
+// ---- chat stream (same request shape as the dashboard / crates/bench) ----
+$("ask").onsubmit = async (e) => {
+  e.preventDefault(); $("out").textContent = ""; $("out").classList.remove("dim");
+  let last = null, n = 0; const t0 = performance.now();
+  const r = await fetch(`${LLAMA}/v1/chat/completions`, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages: [{ role: "user", content: $("prompt").value }], max_tokens: maxTokens, stream: true, cache_prompt: false, stream_options: { include_usage: true } }) });
+  const rd = r.body.pipeThrough(new TextDecoderStream()).getReader(); let buf = "";
+  for (;;) {
+    const { value, done } = await rd.read(); if (done) break;
+    buf += value; const lines = buf.split("\n"); buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
+      const d = JSON.parse(line.slice(6)), text = d.choices?.[0]?.delta?.content;
+      if (text) {
+        const now = performance.now();
+        if (last === null) queue.push({ text: "prompt", batch: true, n: 1 });   // the whole prompt goes through once, as one batch
+        else realMs = 0.7 * realMs + 0.3 * (now - last);
+        last = now; n++; queue.push({ text }); $("q").textContent = queue.length; play();
+        $("ms").textContent = realMs.toFixed(0);
+      }
+      if (d.timings) { $("tps").textContent = d.timings.predicted_per_second.toFixed(1); $("ms").textContent = d.timings.predicted_per_token_ms.toFixed(0);
+        if (d.usage) queue.forEach((q) => { if (q.batch) q.text = `prompt (${d.usage.prompt_tokens} tok)`; }); }
+    }
+  }
+};
+</script>
+</body></html>
