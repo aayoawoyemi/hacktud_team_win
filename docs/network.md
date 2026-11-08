@@ -3,8 +3,8 @@ CONCEPT: the network runbook. What the network must allow, how to set up the tra
          OS, how each machine finds its IP, and the netcheck preflight to run before every launch.
 WHY: WP-10 R10.2 (chosen network, addresses, firewall steps, port plan), R10.6 (offline), R10.7 (bind rpc-server
      to the private network only). Acceptance: a teammate can add a new machine using this file alone.
-DEPENDS ON: O-05 (network: travel router being bought; Dell Mobile Hotspot interim), O-17 (ports, still open:
-     50060 for netcheck is a proposal), D-04 (llama.cpp RPC), D-13 (SpacetimeDB control plane on main),
+DEPENDS ON: O-05 (network: travel router being bought; Dell Mobile Hotspot interim), O-17 (ports, decided Sat 7:55pm:
+     50060 for netcheck), D-04 (llama.cpp RPC), D-13 (SpacetimeDB control plane on main),
      crates/netcheck (the commands below).
 AFFECTS: WP-1 bring-up, WP-3 agent (rpc-server bind address), WP-13 runbook (preflight step).
 Anything marked VERIFY has not been tested on the team's machines yet.
@@ -43,7 +43,7 @@ the Dell).
 | 50060 | `netcheck serve` | any machine under test | `netcheck client` | any machine running `netcheck serve` |
 
 - 50052 and 8080 are llama.cpp's defaults. 3000 is SpacetimeDB standalone's default (it listens on `0.0.0.0:3000`;
-  source: research/spacetime/01-what-spacetime-is.md). 50060 is netcheck's default, proposed for O-17.
+  source: research/spacetime/01-what-spacetime-is.md). 50060 is netcheck's port (O-17, decided).
 - Helpers need no inbound port for the control plane: agents dial out to main on 3000.
 - `rpc-server` binds to `127.0.0.1` by default (checked: `rpc-server --help`, build 8665). Other machines can't
   reach it until it is started with `-H`:

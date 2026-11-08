@@ -3,8 +3,8 @@
 //! WHY: WP-10 R10.3 ("listener mode and client mode; RTT with many small messages and TCP_NODELAY; throughput
 //!      with bulk transfer"). Echo RTT is closer to what llama.cpp RPC does per token (small request, small
 //!      reply on an open connection) than connect-time RTT, and bulk throughput bounds model-load time.
-//! DEPENDS ON: std::net + threads only. Port 50060 is this crate's proposal for O-17 (it matches the §6.9
-//!      fixture's example `to_addr`); O-17 is still open.
+//! DEPENDS ON: std::net + threads only. Port 50060 is the decided netcheck port (O-17, Aayo 7:55pm;
+//!      it matches the §6.9 fixture's example `to_addr`).
 //! AFFECTS: docs/network.md (firewall rule for 50060), result.rs, the WP-3 agent's `netcheck` command later
 //!      (it would call `run_client` against the peer's `serve`).
 //!
@@ -26,7 +26,7 @@ use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-/// Default netcheck listen port (proposal for O-17).
+/// Default netcheck listen port (O-17, decided: 50060).
 pub const DEFAULT_PORT: u16 = 50060;
 
 const CMD_PING: u8 = b'P';
