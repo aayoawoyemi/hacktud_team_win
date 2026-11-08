@@ -69,13 +69,17 @@ layers. VERIFY how much a warm switch saves (cold 12B → 26B = 303 s).
 
 1. **"Three laptops, one AI."** Dashboard: three nodes connected, SERVING, Gemma 12B. Ask in the chat; the answer
    ends with `computed on 3 machines: m3-air-113 + m5-air-174 + p5-air-204` and its tok/s (~11).
-2. **"A model none of them can hold."** In a Terminal on camera: `curl -s -X POST -H 'Content-Type: application/json'
-   http://192.168.8.113:3000/v1/database/pool/call/request_model -d '["gemma-4-26B-A4B-it-Q8_0"]'` (one call to the Oasis
-   protocol; the dashboard shows the re-plan). Status: `switching to … (launching)`
-   → `now serving …`. Ask again. Say the honest ratio: 25.0 GiB model, biggest Mac holds 17.8 GiB (1.4x), and the
+2. **"A model none of them can hold."** Switch to the 26B: v2's model select, or (works with any dashboard, v1
+   included, since it reads `cluster_status` live):
+   `curl -X POST http://192.168.8.113:3000/v1/database/pool/call/request_model -H 'Content-Type: application/json' -d '["gemma-4-26B-A4B-it-Q8_0"]'`
+   (back: `'["gemma-4-12b-it-Q4_K_M"]'`). Status: LAUNCHING → SERVING; cold ~5 min (film the start and the SERVING
+   moment, cut the middle). Ask again (~12.5 tok/s). Say the honest ratio: 25.0 GiB model, biggest Mac holds 17.8 GiB (1.4x), and the
    internet is off (router WAN unplugged, D-02). The load is minutes cold: cut it in the video, or pre-warm.
-3. **"A laptop joins."** On .174: Ctrl-C its agent (the pool keeps serving on the other two; #52), then start it
-   again → the coordinator re-plans to 3 → SERVING (#49). VERIFY timings (P1 rehearsal, Sun ~7:30am).
+3. **"A machine leaves, the pool heals; it comes back, the pool takes it in."** (P1 rehearsal, Sun 9:00am, 12B):
+   Ctrl-C .174's agent → **the request in flight fails** (llama.cpp aborts on a lost RPC peer) → DEGRADED → the
+   pool recovers onto the 2 remaining Macs and answers again in **~30 s** (#52). Start the agent again → the pool
+   **keeps answering**, then re-plans to 3 in **~18 s** (#49) → SERVING with 3. Total ~54 s. **Don't claim answers
+   continue during a leave.**
 4. **Numbers** (pre-recorded): section 5.
 
 ## 5. Numbers we can quote (all `bench`, thinking off, warmup 1 + 3 repeats; files in `test-runs/bench/`)
