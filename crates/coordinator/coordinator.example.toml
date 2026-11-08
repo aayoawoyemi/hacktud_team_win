@@ -12,3 +12,10 @@ log_dir = "/tmp"
 ready_timeout_s = 300
 # Address other machines use for llama-server (shown as the endpoint). Default: main's LAN IP when host is 0.0.0.0.
 # public_host = "192.168.8.174"
+# Wait for this many helpers before the first load (avoids loading the model twice at startup).
+min_helpers = 1
+# Checkpoint S speed flags (passed to llama-server as-is):
+# flash_attn = "on"
+# extra_args = ["-ctk", "q8_0", "-ctv", "q8_0"]          # KV cache in 8 bit
+# extra_args = ["--spec-type", "ngram-simple"]           # speculative decoding, no draft model
+# tensor_split = [12, 12, 9]                              # -ts layer counts, RPC devices first, main last
