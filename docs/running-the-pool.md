@@ -71,7 +71,7 @@ rpc-server, and waits until the agents report them stopped.
 
 | Action | How | Measured |
 |---|---|---|
-| Ask a question | dashboard chat, or any OpenAI client at `http://<main>:8080/v1` | 12B on 3 Macs ~11 tok/s; 26B on 3 Macs ~12 tok/s, first token 0.6-0.8 s (B3 short prompts, preliminary until the B3 table) |
+| Ask a question | dashboard chat, or any OpenAI client at `http://<main>:8080/v1` | 12B on 3 Macs ~11 tok/s; 26B on 3 Macs **12.5 tok/s**, first token 0.60 s short / 0.64 s long / 1.85 s edit (B3: FA on, q8 KV, `--no-mmap`, 9/9 requests) |
 | Switch model | dashboard model select (calls the `request_model` reducer). One switch per 30 s. A model that fails to load gives way to the previous one. | 12B → 26B cold ~5 min, warm ~2 min; 26B → 12B 21 s (`rpc-server -c` caches each model's layers on the helpers) |
 | Add a machine | start its agent; the coordinator re-plans with it while the pool keeps serving until the new helper is ready | re-plan ~2-3 s on test hardware plus the model's load time |
 | Remove a machine | stop its agent (Ctrl-C stops its rpc-server first) | the pool re-plans on the next request (see below) |
