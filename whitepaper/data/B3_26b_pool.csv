@@ -1,0 +1,13 @@
+run_id,scenario,repeat_index,warmup,started_at,model_id,plan_id,nodes,llama_cpp_build,ctx_size,prompt_id,max_tokens,prompt_tokens,completion_tokens,ttft_ms,gen_tokens_per_s,prompt_tokens_per_s,total_ms,error,notes
+bench-2026-11-08T13-13-13Z,pool_part2,1,true,2026-11-08T13:13:13Z,gemma-4-26b-a4b-it-q8_0,B3-live,m5-air-174 p5-air-204 m3-air-113,8665,4096,short,128,34,128,2014,12.41,17.36,12327,,
+bench-2026-11-08T13-13-13Z,pool_part2,1,false,2026-11-08T13:13:26Z,gemma-4-26b-a4b-it-q8_0,B3-live,m5-air-174 p5-air-204 m3-air-113,8665,4096,short,128,34,128,756,12.15,57.25,11292,,
+bench-2026-11-08T13-13-13Z,pool_part2,2,false,2026-11-08T13:13:37Z,gemma-4-26b-a4b-it-q8_0,B3-live,m5-air-174 p5-air-204 m3-air-113,8665,4096,short,128,34,128,603,12.56,56.87,10794,,
+bench-2026-11-08T13-13-13Z,pool_part2,3,false,2026-11-08T13:13:48Z,gemma-4-26b-a4b-it-q8_0,B3-live,m5-air-174 p5-air-204 m3-air-113,8665,4096,short,128,34,128,561,12.48,61.15,10818,,
+bench-2026-11-08T13-13-13Z,pool_part2,1,true,2026-11-08T13:13:59Z,gemma-4-26b-a4b-it-q8_0,B3-live,m5-air-174 p5-air-204 m3-air-113,8665,4096,long,512,56,512,976,12.13,57.63,43180,,
+bench-2026-11-08T13-13-13Z,pool_part2,1,false,2026-11-08T13:14:42Z,gemma-4-26b-a4b-it-q8_0,B3-live,m5-air-174 p5-air-204 m3-air-113,8665,4096,long,512,56,512,1067,12.49,102.58,42072,,
+bench-2026-11-08T13-13-13Z,pool_part2,2,false,2026-11-08T13:15:24Z,gemma-4-26b-a4b-it-q8_0,B3-live,m5-air-174 p5-air-204 m3-air-113,8665,4096,long,512,56,512,627,12.43,90.09,41828,,
+bench-2026-11-08T13-13-13Z,pool_part2,3,false,2026-11-08T13:16:06Z,gemma-4-26b-a4b-it-q8_0,B3-live,m5-air-174 p5-air-204 m3-air-113,8665,4096,long,512,56,512,637,12.58,88.68,41322,,
+bench-2026-11-08T13-13-13Z,pool_part2,1,true,2026-11-08T13:16:47Z,gemma-4-26b-a4b-it-q8_0,B3-live,m5-air-174 p5-air-204 m3-air-113,8665,4096,edit,512,274,313,1556,12.46,176.82,26671,,
+bench-2026-11-08T13-13-13Z,pool_part2,1,false,2026-11-08T13:17:14Z,gemma-4-26b-a4b-it-q8_0,B3-live,m5-air-174 p5-air-204 m3-air-113,8665,4096,edit,512,274,313,2085,12.56,177.13,27000,,
+bench-2026-11-08T13-13-13Z,pool_part2,2,false,2026-11-08T13:17:41Z,gemma-4-26b-a4b-it-q8_0,B3-live,m5-air-174 p5-air-204 m3-air-113,8665,4096,edit,512,274,313,1530,12.36,179.77,26853,,
+bench-2026-11-08T13-13-13Z,pool_part2,3,false,2026-11-08T13:18:08Z,gemma-4-26b-a4b-it-q8_0,B3-live,m5-air-174 p5-air-204 m3-air-113,8665,4096,edit,512,274,313,1854,12.56,148.36,26776,,
