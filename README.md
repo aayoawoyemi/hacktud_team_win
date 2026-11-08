@@ -10,33 +10,66 @@
 ![Tests: 97](https://img.shields.io/badge/tests-97-informational)
 ![HackUTD 2026](https://img.shields.io/badge/HackUTD-2026-ff69b4)
 
-Oasis pools the computers an office already owns into one private AI server. It splits a language model too big for
-any single machine across several of them, over a local network, with no cloud and no internet connection.
+**Oasis distributes large language model inference across the idle computers an office already owns.** It pools
+their GPU memory over a private, offline network built from about $140 of parts, so that the machines together can
+run a model none of them could hold alone. Documents never leave the building, and no new server is needed.
 
-**Gemma 4 26B (25.0 GiB) runs on three MacBook Airs at 12.5 tokens/s, with 0.6 s to the first token.** The largest
-of the three can give a model 17.8 GiB.
+On three MacBook Airs, Oasis serves Gemma 4 26B, a 25.0 GiB model, at 12.5 tokens per second with 0.6 s to the first
+token. The largest of the three laptops can give a model 17.8 GiB of GPU memory, so the model is 1.4 times larger than
+any single machine in the pool.
 
-[How it works](#how-oasis-works) · [Results](#results) · [Run it](#run-it) · [Known limits](#known-limits) ·
-Built at HackUTD 2026 (Nov 7-8)
+[The problem](#the-problem) · [Approach](#approach) · [How it works](#how-oasis-works) · [Results](#results) ·
+[Run it](#run-it) · [Related work](#related-work) · Built at HackUTD 2026 (Nov 7-8)
 
 ![The Oasis dashboard on the real pool: three MacBook Airs, all connected and serving Gemma 4 12B](docs/img/dashboard.png)
 
 ## The problem
 
-Clinics, law firms and accounting offices hold records that cannot leave the building, so cloud AI services are
-often off the table for them. Running a capable model on site normally means buying a GPU server, and a machine with
-enough memory for a 25 GB model costs thousands of dollars. Yet most of these offices already own laptops and
-desktops with capable GPUs. Each one is too small to hold a strong model alone, but together they have more than
-enough memory.
+Organizations that handle confidential records face a practical barrier to adopting large language models. Clinics,
+law firms and accounting practices hold documents that privacy regulation, professional duty or client contracts
+require them to keep on site. Hosted AI services work only if those documents are sent to a third party, which such
+organizations often cannot do.
+
+Running a model on site avoids that exposure but shifts the burden to hardware. A model's weights must fit in GPU
+memory, and the models that answer reliably are large: Gemma 4 26B at 8-bit precision occupies 25.0 GiB. A server
+with that much GPU memory costs several thousand dollars, a cost that is hard to justify for a practice of a few
+people.
+
+The memory such an office needs often exists already, but it is fragmented. A typical office owns several laptops
+and desktops, each with a capable GPU that sits idle for most of the day. In the Oasis test pool, the largest machine
+offers 17.8 GiB of GPU memory and the smallest 11.8 GiB. Neither can hold the 26B model, yet the three machines
+together offer 47 GiB.
+
+Oasis asks whether that fragmented memory can serve as one model server. Two conditions must hold. The pool must run
+a model larger than any of its members at a usable speed, and it must operate as a single system that plans,
+launches and recovers without an engineer at a terminal.
+
+## Approach
+
+Oasis treats a group of ordinary computers as one inference server and separates the work into two planes. The data
+plane, llama.cpp's RPC backend, splits the model by layers across the machines' GPUs, so that each token passes
+through every machine in turn. The control plane, built for this project, decides which machines take part, what
+each one runs and what state the pool is in.
+
+The control plane keeps all of its state in a SpacetimeDB database. Every machine, heartbeat, order, split plan and
+state change is a row, and only the database's own functions can change those rows. A Rust agent on each machine and
+a Rust coordinator on the main machine read and write the pool through that database and never through one another.
+
+The project contributes:
+
+- **A pooled inference server on hardware an office already owns.** Three MacBook Airs run Gemma 4 26B, 1.4 times
+  larger than the largest of them, at 12.5 tokens per second, with no internet connection.
+- **A control plane held in a database.** Registration, heartbeats, orders, split plans and the pool's state machine
+  live in SpacetimeDB tables, and the database rejects any state change outside the allowed graph.
+- **Operation without manual steps.** The pool plans and launches a model, switches models, admits a new machine
+  while it keeps answering, and recovers from a lost machine on its own.
+- **An offline network kit.** A travel router and a gigabit switch, with no internet uplink, give the pool a
+  0.4-0.9 ms round trip between machines.
+- **Measurements on real hardware**, with the raw files for every run in [test-runs/](test-runs/).
 
 ## How Oasis works
 
-Oasis joins machines on a private wired network into one model server. Every machine contributes its GPU memory,
-the model's layers are split among them, and each token passes through all of them in turn. A database records
-which machines are present, what each one holds and what state the pool is in, and every program reads and writes
-that state through it.
-
-The system has three layers:
+The system has three layers, from the network up:
 
 | Layer | What it does | Built with |
 |---|---|---|
@@ -284,14 +317,25 @@ command-line tools launched by another app (errno 65, Apple TN3179).
 
 Model files (`models/`, `*.gguf`) and `target/` are git-ignored.
 
+## Related work
+
+Pooling consumer devices for inference is an active area, and Oasis builds on parts of it.
+
+| Project | What it does | How Oasis differs |
+|---|---|---|
+| [llama.cpp RPC](https://github.com/ggml-org/llama.cpp) | Splits a model by layers across `rpc-server` processes on other machines | Oasis uses it as the data plane and adds discovery, planning, supervision and recovery around it |
+| [exo](https://github.com/exo-explore/exo) | Pools Apple devices into an AI cluster with MLX, automatic discovery and a dashboard | Oasis targets an offline kit for hardware an office already owns and keeps the pool's state in a database |
+| [prima.cpp](https://arxiv.org/abs/2504.08791) | Runs 30-70B models on mixed home clusters with a layer scheduler | Oasis focuses on operating the pool (state, orders, recovery) and leaves layer math to llama.cpp |
+| [distributed-llama](https://github.com/b4rtaz/distributed-llama) | Tensor parallelism over Ethernet across home devices | Oasis splits by layers and adds a control plane |
+| [GPUStack](https://github.com/gpustack/gpustack), [LocalAI](https://github.com/mudler/LocalAI) | Cluster managers with distributed llama.cpp backends | Oasis holds its control state in SpacetimeDB tables and enforces the state machine in the database |
+
+None of these projects is the first to pool home devices, and Oasis does not claim that. Its distinct parts are the
+control plane held in SpacetimeDB and the offline kit sized for a small regulated office.
+
+Team Oasis and its coding agents built the project at HackUTD 2026 (Nov 7-8). Each task ran in its own branch and
+folder, and small pull requests merged into `main` many times an hour; the commands and agent rules are in
+[docs/team-workflow.md](docs/team-workflow.md).
+
 ## License
 
 MIT. See [LICENSE](LICENSE). llama.cpp and SpacetimeDB keep their own licenses.
-
-## How it was built
-
-Team Oasis and its coding agents built the project at HackUTD 2026 (Nov 7-8). Each task ran in its own
-branch and folder, and small pull requests merged into `main` many times an hour; the commands and agent rules are
-in [docs/team-workflow.md](docs/team-workflow.md). Prior work: [exo](https://github.com/exo-explore/exo) pools
-Apple devices with MLX, and llama.cpp's RPC backend provides the layer split Oasis runs on. Oasis adds an offline
-kit for hardware an office already owns, with the pool's state held and enforced in SpacetimeDB.
