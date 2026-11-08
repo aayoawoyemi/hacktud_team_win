@@ -1030,8 +1030,8 @@ mod tests {
         }
         assert_eq!(
             EVENT_KINDS.len(),
-            20,
-            "§6.10 lists 19 kinds, plus launch_failed (Aayo 11:20pm)"
+            21,
+            "§6.10 lists 19 kinds, plus launch_failed (Aayo 11:20pm) and model_requested (Sun 2am)"
         );
     }
 }
