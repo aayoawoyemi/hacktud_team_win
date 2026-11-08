@@ -15,6 +15,43 @@ max_tokens = 512
 text = "Write a step-by-step guide for setting up a small office network with a router, a switch and three laptops. Cover IP addresses, firewalls and how to test that every machine can reach the others."
 
 [[prompt]]
+# Rewrite-style task: most of the output copies the input, the case where ngram speculative decoding
+# (--spec-type ngram-simple, runs B1s/B2s/B5) can gain. Also the shape of the legacy-code modernize use case.
+id = "edit"
+use = "bench"
+max_tokens = 512
+text = '''Add a one-line docstring to every function in this Python file. Return the whole file, otherwise unchanged.
+
+def load_rows(path):
+    rows = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            rows.append(line.split(","))
+    return rows
+
+def total_by_key(rows, key_index, value_index):
+    totals = {}
+    for row in rows:
+        key = row[key_index]
+        value = float(row[value_index])
+        totals[key] = totals.get(key, 0.0) + value
+    return totals
+
+def top_n(totals, n):
+    items = sorted(totals.items(), key=lambda kv: kv[1], reverse=True)
+    return items[:n]
+
+def format_report(items):
+    lines = []
+    for name, amount in items:
+        lines.append(f"{name:<20} {amount:>10.2f}")
+    return "\n".join(lines)
+'''
+
+[[prompt]]
 id = "demo-1"
 use = "demo"
 max_tokens = 256

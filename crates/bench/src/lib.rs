@@ -58,6 +58,10 @@ pub struct Config {
     /// Optional label: the runner can't compute it.
     #[serde(default)]
     pub size_ratio: Option<f64>,
+    /// false (default) sends `chat_template_kwargs.enable_thinking = false`: Gemma 4 otherwise spends max_tokens on a
+    /// thought block, and the `edit` prompt never reaches the rewrite that ngram speculative decoding can speed up.
+    #[serde(default)]
+    pub thinking: bool,
 }
 
 fn default_use() -> String {
@@ -161,7 +165,7 @@ pub struct Measurement {
 
 /// R8.1: one streaming chat completion. Errors are returned as text with a §6.11 code prefix; the caller turns
 /// them into `BenchResult.error` so a failed request still leaves a line in the output (never silently dropped).
-pub fn run_one(endpoint: &str, prompt: &Prompt, timeout: Duration) -> Result<Measurement, String> {
+pub fn run_one(endpoint: &str, prompt: &Prompt, timeout: Duration, thinking: bool) -> Result<Measurement, String> {
     let (host, port) = parse_endpoint(endpoint)?;
     // WHY cache_prompt=false: llama-server reuses the KV of an identical prompt by default, so repeats 2..N would
     // skip prompt processing and report a near-zero TTFT. Benchmarks must measure the full request every time.
@@ -173,6 +177,7 @@ pub fn run_one(endpoint: &str, prompt: &Prompt, timeout: Duration) -> Result<Mea
         "stream_options": { "include_usage": true },
         "temperature": 0,
         "cache_prompt": false,
+        "chat_template_kwargs": { "enable_thinking": thinking },
     })
     .to_string();
 
@@ -594,7 +599,7 @@ pub fn run(
                 repeat_index,
                 warmup,
                 at,
-                run_one(&cfg.endpoint, p, timeout),
+                run_one(&cfg.endpoint, p, timeout, cfg.thinking),
             );
             progress(&format!(
                 "{} {} #{}: {}",
@@ -693,7 +698,7 @@ mod tests {
     fn chunked_stream_split_mid_line_is_measured() {
         for size in [1, 7, 64, 100_000] {
             let url = serve(OK_CHUNKED, chunk(STREAM, size));
-            let m = run_one(&url, &prompt(), Duration::from_secs(5)).unwrap();
+            let m = run_one(&url, &prompt(), Duration::from_secs(5), false).unwrap();
             assert_eq!(m.text, "Hello!", "chunk size {size}");
             assert_eq!(m.content_chunks, 2);
             assert_eq!((m.prompt_tokens, m.completion_tokens), (Some(36), Some(3)));
@@ -713,7 +718,7 @@ mod tests {
             STREAM.as_bytes().to_vec(),
         );
         assert_eq!(
-            run_one(&url, &prompt(), Duration::from_secs(5))
+            run_one(&url, &prompt(), Duration::from_secs(5), false)
                 .unwrap()
                 .text,
             "Hello!"
@@ -726,7 +731,7 @@ mod tests {
             "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 7\r\n\r\n",
             b"loading".to_vec(),
         );
-        let out = run_one(&url, &prompt(), Duration::from_secs(5));
+        let out = run_one(&url, &prompt(), Duration::from_secs(5), false);
         let err = out.clone().unwrap_err();
         assert!(err.starts_with("E_REQUEST_FAILED: HTTP 503"), "{err}");
         let r = to_result(&cfg(), "run", &prompt(), 1, false, "t".into(), out);
@@ -741,13 +746,13 @@ mod tests {
         let mut body = chunk(STREAM, 50);
         body.truncate(120); // socket closes mid-chunk, before any generated token
         let url = serve(OK_CHUNKED, body);
-        assert!(run_one(&url, &prompt(), Duration::from_secs(5)).is_err());
+        assert!(run_one(&url, &prompt(), Duration::from_secs(5), false).is_err());
     }
 
     #[test]
     fn result_prefers_server_timings_and_falls_back_to_estimates() {
         let url = serve(OK_CHUNKED, chunk(STREAM, 64));
-        let m = run_one(&url, &prompt(), Duration::from_secs(5)).unwrap();
+        let m = run_one(&url, &prompt(), Duration::from_secs(5), false).unwrap();
         let r = to_result(&cfg(), "run", &prompt(), 1, false, "t".into(), Ok(m));
         assert_eq!(r.gen_tokens_per_s, Some(175.45911802550006));
         assert_eq!(r.prompt_tokens_per_s, Some(906.1847106501876));
