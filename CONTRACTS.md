@@ -138,8 +138,13 @@ Not written yet: the llama-server load-log parser (per-device buffers and layer 
   - 3000: SpacetimeDB on main.
   - 50052: rpc-server.
   - 8080: llama-server on main.
-  - Agents don't listen on any port (O-17 dissolved).
-- **Publish (main only):** `spacetime publish -s local -p crates/control <db-name> -y`. The publisher's identity
+  - 50060: `netcheck serve` (O-17, decided 7:55pm).
+  - Agents don't listen on any port.
+- **Database name:** `pool` (Aayo, Sat 7:55pm; `contracts::defaults::DB_NAME`). Tests use `pool-smoke` so they never
+  touch the real one.
+- **Timings (O-26, Aayo 7:55pm):** heartbeat every 1000 ms; a node is LOST after 6000 ms without one; the coordinator
+  waits up to 120 s for llama-server `/health`. Constants in `contracts::defaults`; TOML config may override.
+- **Publish (main only):** `spacetime publish -s local -p crates/control pool -y`. The publisher's identity
   becomes admin. Always pass `-s local`: the CLI's default server is maincloud (hosted), which D-02 rules out.
 - **Client bindings:** `contracts::control` (generated, committed). Other machines build without the CLI. After any
   change to `crates/control`, run this on a machine with the CLI and commit the result:

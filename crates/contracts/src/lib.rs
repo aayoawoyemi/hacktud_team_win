@@ -34,6 +34,30 @@ pub mod control_glue;
 
 pub use v1::*;
 
+/// CONCEPT: pool-wide defaults every crate reads, so agent, coordinator and netcheck can't drift apart.
+/// WHY: Aayo 7:55pm Sat: O-26 timings (heartbeat 1000 ms, node timeout 6000 ms = 6 missed heartbeats, ready
+///      timeout 120 s for a model load over RPC), database name `pool`, netcheck port 50060 (O-17). Config files
+///      (O-24) may override the timings; the names and ports are the team's shared plan (docs/network.md).
+/// AFFECTS: agent (heartbeat loop), coordinator (LOST marking, /health wait), netcheck, the publish command.
+pub mod defaults {
+    /// O-26: an agent calls `send_heartbeat` this often.
+    pub const HEARTBEAT_INTERVAL_MS: u64 = 1_000;
+    /// O-26: a node with no heartbeat for this long is LOST (R4.2).
+    pub const NODE_TIMEOUT_MS: u64 = 6_000;
+    /// O-26: how long the coordinator waits for llama-server's /health to return 200 (R4.7).
+    pub const READY_TIMEOUT_S: u64 = 120;
+    /// SpacetimeDB database name on main: `spacetime publish -s local -p crates/control pool -y`.
+    pub const DB_NAME: &str = "pool";
+    /// SpacetimeDB standalone's port on main (`spacetime start` listens on 0.0.0.0:3000).
+    pub const SPACETIME_PORT: u16 = 3000;
+    /// llama.cpp rpc-server's port on every helper.
+    pub const RPC_PORT: u16 = 50052;
+    /// llama-server's HTTP port on main.
+    pub const LLAMA_SERVER_PORT: u16 = 8080;
+    /// O-17: `netcheck serve` listens here.
+    pub const NETCHECK_PORT: u16 = 50060;
+}
+
 /// The `schema_version` every top-level message carries today (§6.0). Bump only on a breaking change,
 /// which the "add, never rename" rule should make rare.
 pub const SCHEMA_VERSION: u32 = 1;

@@ -61,7 +61,7 @@ plus the `wasm32-unknown-unknown` target.
   - Windows: `iwr https://windows.spacetimedb.com -useb | iex`; macOS: `curl -sSf https://install.spacetimedb.com | sh`
   - then `spacetime version install 2.14.1 --use` (the installer takes the newest release).
   - `spacetime start` (listens on 0.0.0.0:3000), then
-    `spacetime publish -s local -p crates/control <db-name> -y`. Always `-s local`: the default server is maincloud.
+    `spacetime publish -s local -p crates/control pool -y` (database name `pool`). Always `-s local`: the default server is maincloud.
   - After changing `crates/control`, regenerate the committed client bindings:
     `spacetime generate --lang rust --out-dir crates/contracts/src/control --module-path crates/control -y`.
 - Model files (`models/`, `*.gguf`) and `target/` are git-ignored.

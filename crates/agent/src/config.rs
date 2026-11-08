@@ -51,7 +51,7 @@ pub struct AgentConfig {
     pub rpc_debug_level: Option<u8>,
     /// `LLAMA_CACHE` for rpc-server. None = llama.cpp default.
     pub llama_cache_dir: Option<PathBuf>,
-    /// Heartbeat period (O-26). Unused until D-13 wiring.
+    /// Heartbeat period (O-26 = 1000 ms). Unused until D-13 wiring.
     pub heartbeat_interval_ms: u64,
     /// Where logs go (O-24). TODO(R3.4/R3.14): mirror the rpc-server ring into a file here.
     pub log_dir: Option<PathBuf>,
@@ -71,8 +71,8 @@ impl Default for AgentConfig {
             rpc_cache: false,
             rpc_debug_level: None,
             llama_cache_dir: None,
-            // Placeholder until O-26 decides; 2 s keeps "killed by hand shows within two heartbeats" quick.
-            heartbeat_interval_ms: 2000,
+            // O-26 (Aayo 7:55pm): 1000 ms; same value as contracts::defaults::HEARTBEAT_INTERVAL_MS.
+            heartbeat_interval_ms: 1000,
             log_dir: None,
         }
     }
