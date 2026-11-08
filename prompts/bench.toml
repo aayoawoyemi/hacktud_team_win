@@ -1,0 +1,21 @@
+# CONCEPT: prompts for the WP-8 runner (R8.3). `use = "bench"` runs in measurements, `use = "demo"` in the demo.
+# WHY: fixed prompts + fixed max_tokens make runs comparable across scenarios (single machine vs pool).
+# AFFECTS: WP-13 picks the demo prompts here. Add prompts; don't change an id once numbers were published with it.
+
+[[prompt]]
+id = "short"
+use = "bench"
+max_tokens = 128
+text = "Explain in one paragraph why a pool of laptops can run a model that none of them can run alone."
+
+[[prompt]]
+id = "long"
+use = "bench"
+max_tokens = 512
+text = "Write a step-by-step guide for setting up a small office network with a router, a switch and three laptops. Cover IP addresses, firewalls and how to test that every machine can reach the others."
+
+[[prompt]]
+id = "demo-1"
+use = "demo"
+max_tokens = 256
+text = "In three short bullet points, what is SpacetimeDB and why would a hackathon team use it?"

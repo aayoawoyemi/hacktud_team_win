@@ -17,3 +17,6 @@ target/
 # Model files never go in git (PRD §5.7, WP-11): they are gigabytes.
 models/
 *.gguf
+
+# WP-8 bench output (commit only curated summaries, under docs/)
+bench-out/

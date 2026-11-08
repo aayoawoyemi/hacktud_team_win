@@ -1,0 +1,16 @@
+# Example WP-8 bench config (O-24). Copy, edit, run: cargo run -p bench --release -- bench.toml
+# Labels (scenario, model_id, nodes, plan_id, size_ratio) describe what the pool is serving right now;
+# the runner can't discover them, so set them to match the launch.
+endpoint = "http://127.0.0.1:8080"      # llama-server on main
+prompts_file = "prompts/bench.toml"
+output_dir = "bench-out"                # <run_id>.jsonl, .csv, .md (keep out of git, or commit only the .md)
+scenario = "single_fit"                 # single_fit | split_2 | split_3 | largest_single | pool_part1 | pool_part2
+model_id = "gemma-4-12b-it-q4_k_m"
+nodes = ["main-air"]                    # node_ids holding layers
+# plan_id = "plan-0001"
+# ctx_size = 4096
+# size_ratio = 1.4                      # model bytes / largest single machine's usable bytes (WP-5)
+prompt_use = "bench"
+warmup = 1
+repeats = 3
+timeout_s = 600
