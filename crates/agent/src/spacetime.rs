@@ -99,12 +99,15 @@ pub async fn run(cfg: AgentConfig) -> Result<(), String> {
                 _ = &mut stop => break,
                 _ = tick.tick() => {}
             }
-            let pending: Vec<CommandRow> = conn
+            let mut pending: Vec<CommandRow> = conn
                 .db
                 .command()
                 .iter()
                 .filter(|c| c.node_id == node_id && c.status == "pending")
                 .collect();
+            // Issue order: the coordinator may send stop_rpc_server then start_rpc_server back to back (#53), and the
+            // client cache doesn't iterate in id order.
+            pending.sort_by_key(|c| c.command_id);
             for cmd in pending {
                 let (cb, rx) = done();
                 conn.reducers
@@ -226,18 +229,69 @@ async fn execute(
             ok(serde_json::json!({ "pid": pid }))
         }
         "stop_rpc_server" => {
-            let code = match server.take() {
+            let (code, orphan) = match server.take() {
                 Some(mut s) => match s.stop(STOP_TIMEOUT).await {
-                    RpcState::Exited { code, .. } => code,
-                    _ => None,
+                    RpcState::Exited { code, .. } => (code, None),
+                    _ => (None, None),
                 },
-                None => None,
+                // Not ours: a previous agent process's rpc-server may still hold the port (Aries #53 review).
+                None => (None, stop_orphan(cfg.rpc_port).await),
             };
-            ok(serde_json::json!({ "exit_code": code }))
+            ok(serde_json::json!({ "exit_code": code, "orphan_pid": orphan }))
         }
         "probe" => ok(serde_json::from_str(caps_json).unwrap_or_default()),
         other => failed("E_INTERNAL", format!("agent: {other} not implemented yet")),
     }
+}
+
+/// CONCEPT: stop an rpc-server this agent process didn't start: the listener on our rpc port, if `ps` names it
+///          rpc-server. SIGTERM, then SIGKILL after STOP_TIMEOUT. Returns its pid if one was stopped.
+/// WHY: Aries #53 review. .204's stuck rpc-server (pid 75488) was started by the previous agent process, so after
+///      an agent restart stop_rpc_server was a no-op and start_rpc_server hit E_PORT_IN_USE.
+/// DEPENDS ON: lsof and ps (macOS; on other systems this finds nothing and stop stays a no-op).
+/// AFFECTS: only an explicit stop_rpc_server. Never at agent startup: a restarted agent must leave a live rpc-server
+///          serving (P5, 07:31Z), and anything that isn't an rpc-server is never touched.
+async fn stop_orphan(port: u16) -> Option<u32> {
+    use tokio::process::Command;
+    let out = Command::new("lsof")
+        .args(["-nP", "-t", &format!("-iTCP:{port}"), "-sTCP:LISTEN"])
+        .output()
+        .await
+        .ok()?;
+    let pid: u32 = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .next()?
+        .trim()
+        .parse()
+        .ok()?;
+    let comm = Command::new("ps")
+        .args(["-o", "comm=", "-p", &pid.to_string()])
+        .output()
+        .await
+        .ok()?;
+    if !String::from_utf8_lossy(&comm.stdout)
+        .trim()
+        .ends_with("rpc-server")
+    {
+        return None;
+    }
+    let alive = || async {
+        Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .output()
+            .await
+            .is_ok_and(|o| o.status.success())
+    };
+    let _ = Command::new("kill").args(["-TERM", &pid.to_string()]).output().await;
+    let t = std::time::Instant::now();
+    while t.elapsed() < STOP_TIMEOUT && alive().await {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    if alive().await {
+        let _ = Command::new("kill").args(["-KILL", &pid.to_string()]).output().await;
+    }
+    eprintln!("agent: stopped rpc-server {pid} left by a previous agent on port {port}");
+    Some(pid)
 }
 
 /// Config defaults, overridden by the command's args. With no devices given anywhere, pass only GPU devices:

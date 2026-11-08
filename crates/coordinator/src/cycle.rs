@@ -136,7 +136,12 @@ impl Coordinator {
         let cfg_model = (cfg.model_id.clone(), cfg.model_path.clone());
         // Aries/P2 #51 review item 2: a model_request row left from an earlier session must not override this
         // coordinator's config at start, so only requests made after connecting count.
-        let model_seen = conn.db.model_request().id().find(&0).map(|r| r.requested_at);
+        let model_seen = conn
+            .db
+            .model_request()
+            .id()
+            .find(&0)
+            .map(|r| r.requested_at);
         Ok(Self {
             cfg,
             conn,
@@ -359,9 +364,36 @@ impl Coordinator {
         // A helper whose rpc-server fails (or isn't up in 60 s) is skipped, and the pool comes up on the others;
         // only when none is left does the bring-up fail (one bad laptop must not block the demo).
         let mut helpers = helpers;
+        // Helpers already given one stop + start because an old rpc-server held their port, with the command
+        // watermark from then (their earlier E_PORT_IN_USE no longer counts).
+        let mut restarted: std::collections::HashMap<String, u64> = Default::default();
         let rpc = loop {
             for n in helpers.clone() {
-                if let Some(f) = self.failed_command(std::slice::from_ref(&n.node_id), since) {
+                let since_n = *restarted.get(&n.node_id).unwrap_or(&since);
+                if let Some(f) = self.failed_command(std::slice::from_ref(&n.node_id), since_n) {
+                    // Aries #53 review: an rpc-server left running by a previous agent process holds the port (the
+                    // agent reports not_started, so start hits E_PORT_IN_USE). None of our llama-servers is attached
+                    // during launch, so it's safe to stop it (the agent kills that orphan) and start again, once.
+                    // The join path doesn't do this: there a surviving rpc-server may be serving the live pool.
+                    if f.contains("E_PORT_IN_USE") && !restarted.contains_key(&n.node_id) {
+                        self.event(
+                            "recovery_started",
+                            &format!("{}: port held by an rpc-server from a previous agent; restarting it", n.node_id),
+                        );
+                        restarted.insert(n.node_id.clone(), self.max_command_id());
+                        for (kind, args) in [
+                            ("stop_rpc_server", "{}".to_string()),
+                            ("start_rpc_server", start_args(&n)),
+                        ] {
+                            let (cb, rx) = done();
+                            self.conn
+                                .reducers
+                                .issue_command_then(n.node_id.clone(), kind.into(), args, cb)
+                                .map_err(|e| e.to_string())?;
+                            wait(rx)?;
+                        }
+                        continue;
+                    }
                     self.skip(&n.node_id, &f);
                     helpers.retain(|h| h.node_id != n.node_id);
                 }
@@ -409,7 +441,10 @@ impl Coordinator {
                 .filter(|n| {
                     let ok = self.rpc_addr(n).is_some_and(|a| launch::rpc_hello(&a));
                     if !ok {
-                        self.skip(&n.node_id, "rpc-server held by a dead client, still stuck after a restart");
+                        self.skip(
+                            &n.node_id,
+                            "rpc-server held by a dead client, still stuck after a restart",
+                        );
                     }
                     ok
                 })

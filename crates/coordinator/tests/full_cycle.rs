@@ -409,6 +409,53 @@ fn full_cycle_two_helpers_then_join() {
     assert!(!ask(port, "Name one mountain.").is_empty());
     drop(dead_client);
 
+    // Aries #53 review: the rpc-server holding a helper's port was started by a PREVIOUS agent process (.204: pid
+    // 75488 outlived an agent restart). The new agent holds no server, reports not_started, and start_rpc_server hit
+    // E_PORT_IN_USE, so the helper was skipped. Here an rpc-server is started outside any agent on helper-d's port,
+    // a silent client holds it, helper-d's agent starts, and a launch must stop that orphan and start a fresh one.
+    println!("6k. orphan rpc-server from a previous agent holds the port -> agent stops it, helper-d joins");
+    let pid = String::from_utf8(
+        Command::new("lsof")
+            .args(["-ti", &format!("tcp:{port}"), "-sTCP:LISTEN"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    Command::new("kill").args(["-9", pid.trim()]).status().unwrap();
+    wait_until("llama-server exit noticed", 30, || {
+        let _ = c.tick();
+        !c.is_serving()
+    });
+    let mut orphan = Command::new(format!("{bin}/rpc-server"))
+        .args(["-H", "127.0.0.1", "-p", "50075", "-d", "MTL0"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("orphan rpc-server");
+    wait_until("orphan listening", 30, || accepting("127.0.0.1:50075"));
+    let dead_client = std::net::TcpStream::connect("127.0.0.1:50075").expect("dead client connects");
+    sleep(Duration::from_secs(1));
+    let dd = Agent::spawn("helper-d", 50075, &bin, &log_dir);
+    wait_until("helper-d registered", 30, || {
+        node_states(&c).iter().any(|(id, _)| id == "helper-d")
+    });
+    c.bring_up().expect("bring-up stops the orphan and starts helper-d");
+    assert_eq!(c.cluster_state(), "SERVING");
+    assert!(c.active().contains(&"helper-d".to_string()), "{:?}", c.active());
+    assert!(
+        event_messages()
+            .iter()
+            .any(|m| m.contains("port held by an rpc-server from a previous agent")),
+        "the restart must be logged"
+    );
+    assert!(
+        orphan.try_wait().unwrap().is_some(),
+        "the orphan rpc-server must have been stopped by the agent"
+    );
+    assert!(!ask(port, "Name one lake.").is_empty());
+    drop(dead_client);
+
     // Aries/P2 #51 review item 2: a request left in the db from before a restart must not override the config.
     println!("6h. restart: a stale model request is ignored, the configured default loads");
     request_model("alt");
@@ -425,7 +472,7 @@ fn full_cycle_two_helpers_then_join() {
     assert_eq!(c.cluster_state(), "STOPPED");
     // The coordinator's stop_rpc_server commands (not the agents exiting) must close every helper port.
     wait_until("rpc-servers stopped by command", 15, || {
-        [&a, &b, &cc]
+        [&a, &b, &cc, &dd]
             .iter()
             .all(|ag| !accepting(&format!("127.0.0.1:{}", ag.port)))
     });
@@ -438,7 +485,13 @@ fn full_cycle_two_helpers_then_join() {
         .collect();
     cmds.sort();
     println!("  commands: {cmds:?}");
-    assert!(cmds.iter().all(|(_, _, _, st)| st == "ok"), "{cmds:?}");
+    // The one expected failure: 6k's first start on helper-d (E_PORT_IN_USE, before the orphan was stopped).
+    assert!(
+        cmds.iter()
+            .filter(|(_, _, _, st)| st != "ok")
+            .all(|(_, id, kind, _)| id == "helper-d" && kind == "start_rpc_server"),
+        "{cmds:?}"
+    );
     println!("  nodes: {:?}", node_states(&c));
     let events: Vec<String> = c
         .conn
@@ -448,12 +501,12 @@ fn full_cycle_two_helpers_then_join() {
         .map(|r| r.cluster_state)
         .collect();
     println!("  final cluster_status: {events:?}");
-    drop((a, b, cc));
+    drop((a, b, cc, dd));
     assert!(
         !accepting(&format!("127.0.0.1:{port}")),
         "llama-server still listening"
     );
-    for p in [50072, 50073, 50074] {
+    for p in [50072, 50073, 50074, 50075] {
         assert!(
             !accepting(&format!("127.0.0.1:{p}")),
             "rpc-server on {p} still listening"
