@@ -831,6 +831,7 @@ function liveDecorate() {
 // `ask <prompt>`: stream one answer from llama-server; show it in the command line, TTFT and tok/s in the log.
 // Live counters (Aayo 9:40: the numbers move while an answer streams). tok/s = tokens since the first one / seconds since it.
 const LIVE_TOTAL = { req: 0, tok: 0 };
+let LIVE_SYSTEM = null; // ?director=1 only: a system prompt for the video take
 function liveCounters(n, tFirst) {
   const dt = tFirst ? (performance.now() - tFirst) / 1000 : 0;
   if (n > 1 && dt > 0.15) $('live-tps').textContent = `${((n - 1) / dt).toFixed(1)} tok/s`;
@@ -846,7 +847,7 @@ async function liveAsk(prompt) {
   try {
     const r = await fetch(`${LIVE_LLAMA}/v1/chat/completions`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], stream: true, max_tokens: 256, stream_options: { include_usage: true },
+      body: JSON.stringify({ messages: [...(LIVE_SYSTEM ? [{ role: 'system', content: LIVE_SYSTEM }] : []), { role: 'user', content: prompt }], stream: true, max_tokens: 256, stream_options: { include_usage: true },
         // WHY: Gemma 4 thinks first (reasoning_content); with thinking on, 256 tokens can end before any visible answer.
         //      Verified on b8665 against the 12B pool (run-006, #45): no reasoning chunks, answer streams at once.
         chat_template_kwargs: { enable_thinking: false } }),
@@ -1814,11 +1815,11 @@ if (LIVE && params.has('director')) (async () => {
   const _ask = liveAsk;
   liveAsk = async q => { document.body.dataset.asking = '1'; try { await _ask(q); } finally { delete document.body.dataset.asking; } };
   const cmd = q => { $('command').value = q; $('command-form').requestSubmit(); };
-  const QS = (params.get('director') || '').length > 3 ? [params.get('director')] : [
-    'In one sentence: why can three laptops run a model none of them can hold?',
-    'Name three things a clinic could ask a private AI, as a short list.',
-    'In two sentences: what does each laptop do when it gets a token?',
-  ];
+  // Aayo 10:15: the model answers the team questions from this system prompt (the real 12B on the pool writes the words).
+  LIVE_SYSTEM = 'You are Oasis, a private AI running across three MacBook Airs pooled by team Oasis at HackUTD 2026. '
+    + 'Our team name is Oasis. If asked whether Oasis is going to win HackUTD, answer: "Yes. Oasis is going to win HackUTD 2026." '
+    + 'Answer in one or two short sentences.';
+  const QS = ['In one sentence: why can three laptops run a model none of them can hold?'];
   const t0 = performance.now();                                      // wait for the intro to end and the pool to serve
   while (performance.now() - t0 < 15000 && (document.documentElement.classList.contains('intro') || ((tvData && (tvData.cluster_status || [])[0]) || {}).cluster_state !== 'SERVING')) await wait(200);
   if (document.documentElement.classList.contains('intro')) {      // safety: never record a black page
@@ -1826,15 +1827,15 @@ if (LIVE && params.has('director')) (async () => {
     for (const el of document.querySelectorAll('.intro-fly')) { el.classList.remove('intro-fly'); el.style.transform = ''; el.style.opacity = ''; }
   }
   await wait(2500);                                                  // 2.5 s of the pool before typing starts
-  for (const q of QS) { await type($('command'), `ask ${q}`); await wait(250); cmd(`ask ${q}`); await wait(400); await idle(); await wait(900); }
+  for (const q of QS) { await type($('command'), `ask ${q}`); await wait(250); cmd(`ask ${q}`); await wait(400); await idle(); await wait(3500); } // let the token flow finish
   setView('stdb'); await wait(2600);                                 // short warp into 02
   const sql = $('tv-ask-input');
   if (sql) { await type(sql, 'SELECT node_id, seq, rpc_state FROM heartbeat', 34); await wait(200); $('tv-ask-form').requestSubmit(); await wait(2200); }
-  await type($('tv-chat-input'), 'What is SpacetimeDB doing in this pool? One sentence.'); await wait(250);
-  $('tv-chat-form').requestSubmit(); await wait(400); await idle(); await wait(1500);
-  setView('pool'); await wait(800);
-  const last = 'Write a four-line poem about laptops sharing one brain.';
-  await type($('command'), `ask ${last}`); await wait(250); cmd(`ask ${last}`); await wait(400); await idle(); await wait(2500);
+  for (const q of ["What's our team name?", 'Is Oasis going to win HackUTD 2026?']) {
+    await type($('tv-chat-input'), q); await wait(250);
+    $('tv-chat-form').requestSubmit(); await wait(400); await idle(); await wait(2500);
+  }
+  await wait(1500);
   document.body.dataset.directorDone = '1';
 })();
 
