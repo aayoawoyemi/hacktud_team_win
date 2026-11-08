@@ -480,7 +480,8 @@ fn full_cycle_two_helpers_then_join() {
     // Aries #52 review: recovery must not be gated on min_helpers (the live config has 2; tonight .204 dropped and
     // 1 < 2 left the pool STOPPED). Here min_helpers is above what remains after helper-c leaves for good.
     println!("6i. helper leaves for good with min_helpers above the rest -> recovers on the remaining helpers");
-    c.cfg.min_helpers = 3;
+    let before = c.active().len(); // 4 after 6k (helper-d joined)
+    c.cfg.min_helpers = before;
     drop(cc); // SIGINT: the agent stops its rpc-server, then disconnects (LOST)
     wait_until("helper-c LOST", 30, || {
         let _ = c.tick();
@@ -489,15 +490,17 @@ fn full_cycle_two_helpers_then_join() {
             .any(|(id, st)| id == "helper-c" && st == "LOST")
     });
     let _ = ask(port, "Say ok."); // finds the dead RPC link; llama-server exits
-    wait_until("SERVING on the 2 remaining helpers", 240, || {
+    wait_until("SERVING on the remaining helpers", 240, || {
         let _ = c.tick();
-        c.cluster_state() == "SERVING" && c.active() == ["helper-a", "helper-b"]
+        c.cluster_state() == "SERVING"
+            && c.active().len() == before - 1
+            && !c.active().contains(&"helper-c".to_string())
     });
     assert!(!ask(port, "Name one river.").is_empty());
     let cc = Agent::spawn("helper-c", 50074, &bin, &log_dir);
-    wait_until("helper-c rejoins -> SERVING with 3", 180, || {
+    wait_until("helper-c rejoins -> SERVING with all again", 180, || {
         c.tick().expect("tick");
-        c.cluster_state() == "SERVING" && c.active().len() == 3
+        c.cluster_state() == "SERVING" && c.active().len() == before
     });
 
     // Aries/P2 #51 review item 2: a request left in the db from before a restart must not override the config.
