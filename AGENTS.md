@@ -54,7 +54,7 @@ agents work on this repo at the same time, each in its own folder (git worktree)
 <!-- Fill in once the stack is picked. Keep it short; agents read this every session. -->
 
 - Idea: pool ordinary laptops (one Windows Dell, several M5 Macs) into one llama.cpp model too big for any one of them, no cloud. Full plan: `PRD.md` on `notes`.
-- Stack: Rust (all team code). llama.cpp RPC (official binaries, build 8665) supervised as child processes. gRPC via tonic + protox.
+- Stack: Rust (all team code). llama.cpp RPC (official binaries, build 8665) supervised as child processes. Control plane = SpacetimeDB 2.14.1 (D-13; module in crates/control, server on main). Rust 1.99.1.
 - Run locally:
 - Test / check before shipping:
 - Deploy:

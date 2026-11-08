@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "node_id": "example-dell",
+  "hostname": "EXAMPLE-DELL",
+  "agent_version": "0.1.0",
+  "captured_at": "2026-11-07T21:50:00Z",
+  "os": { "family": "windows", "version": null, "arch": "x86_64" },
+  "cpu": { "model": "11th Gen Intel(R) Core(TM) i7-11800H @ 2.30GHz", "physical_cores": 8, "logical_cores": 16 },
+  "memory": { "total_bytes": 16857000000, "available_bytes": 9800000000 },
+  "llama_cpp": {
+    "bin_dir": "C:\\path\\to\\llama.cpp",
+    "build": 8665,
+    "commit": "b8635075f",
+    "rpc_protocol": "3.6.1",
+    "backends": ["CPU", "Vulkan", "RPC"]
+  },
+  "devices": [
+    { "name": "Vulkan0", "description": "Intel(R) UHD Graphics", "backend": "Vulkan", "total_mib": 8051, "free_mib": 7393, "unified_memory": true },
+    { "name": "Vulkan1", "description": "NVIDIA GeForce RTX 3050 Ti Laptop GPU", "backend": "Vulkan", "total_mib": 3965, "free_mib": 3370, "unified_memory": false }
+  ],
+  "rpc_server_devices": ["Vulkan0", "Vulkan1"],
+  "disk": { "model_dir": null, "model_dir_free_bytes": null, "cache_dir": null, "cache_dir_free_bytes": null },
+  "network": { "addresses": ["192.0.2.10"], "interface": "Wi-Fi" },
+  "speed": { "mem_bandwidth_gbps": null, "llama_bench_tg_tps": null, "measured_with": null },
+  "power": { "on_ac": true, "battery_pct": null }
+}

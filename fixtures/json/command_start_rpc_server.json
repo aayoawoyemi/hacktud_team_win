@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "command_id": "cmd-0007",
+  "kind": "start_rpc_server",
+  "args": {
+    "bind": "192.0.2.10",
+    "port": 50052,
+    "devices": null,
+    "threads": null,
+    "cache": true,
+    "debug_level": null,
+    "env": {}
+  }
+}

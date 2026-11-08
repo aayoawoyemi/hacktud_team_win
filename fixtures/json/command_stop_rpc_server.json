@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "command_id": "cmd-0009",
+  "kind": "stop_rpc_server",
+  "args": {}
+}

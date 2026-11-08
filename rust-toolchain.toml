@@ -1,13 +1,12 @@
 # CONCEPT: pins the Rust compiler every machine uses for this repo.
-# WHY: WP-12 R12.2. The Dell (Windows, MSVC) has 1.93.1; pinning the exact version means a Mac and the Dell
-#      compile the same code with the same compiler, so "works on my machine" can't come from rustc drift.
-#      Exact version, not "stable": "stable" moves every six weeks, and a new release mid-hackathon could
-#      break a build on one machine only.
-# DEPENDS ON: rustup. With rustup >= 1.28.1, a machine that lacks 1.93.1 downloads it on the first cargo
-#      command in this folder. A machine whose `stable` already is 1.93.1 still downloads it once, because
-#      rustup matches toolchains by name. To reuse an existing install instead, run once:
-#        rustup toolchain link 1.93.1 "$(rustc +stable --print sysroot)"
-# AFFECTS: every crate (edition 2024 in Cargo.toml needs >= 1.85; tonic 0.14 needs >= 1.88).
-# No targets or components listed: each machine builds natively (R12.4), and components would add downloads.
+# WHY: WP-12 R12.2, updated for D-13 (SpacetimeDB replaces gRPC; Aayo 6:05pm: upgrade Rust, newest SpacetimeDB).
+#      SpacetimeDB 2.12 and later need Rust >= 1.97; 1.99.1 is the latest stable (Oct 13). An exact version, not
+#      "stable": "stable" moves every six weeks and could break one machine mid-hackathon.
+# DEPENDS ON: rustup. The first cargo command in this folder downloads 1.99.1 (and the wasm32 target) automatically.
+#      Machines need rustup itself (https://rustup.rs).
+# AFFECTS: every crate. `wasm32-unknown-unknown` is what SpacetimeDB modules compile to (crates/control, built by
+#      `spacetime build` / `spacetime publish` on the main machine). Helpers only build native code; the target
+#      is listed here so the one machine that publishes never needs a manual `rustup target add`.
 [toolchain]
-channel = "1.93.1"
+channel = "1.99.1"
+targets = ["wasm32-unknown-unknown"]

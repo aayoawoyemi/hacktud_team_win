@@ -1,8 +1,10 @@
-# CONCEPT: contracts crate, owned by WP-2. Shared contract types (the PRD §6 shapes) and parsers for
-#          llama.cpp's text output.
-# WHY: workspace skeleton from WP-12 R12.1. Every other crate exchanges these types, so they live in one crate
-#      that the agent and coordinator both compile (PRD §6, O-03: gRPC with tonic + protox).
-# DEPENDS ON: nothing yet. WP-2 adds tonic, prost, protox and serde on its own PR.
+# CONCEPT: contracts crate, owned by WP-2. Shared contract types (the PRD §6 shapes), parsers for llama.cpp's
+#          text output, and the generated SpacetimeDB client bindings for the control module (crates/control).
+# WHY: every other crate exchanges these types, so they live in one crate that the agent and coordinator both
+#      compile. D-13 (6:10pm): the control plane is SpacetimeDB, not gRPC. The .proto file stays as the schema
+#      the §6 serde types are generated from (Aries correction on #11, 6:03pm); it no longer defines services.
+# DEPENDS ON: proto/contracts.proto (type schema); build.rs compiles it with protox (pure Rust, no protoc) and
+#             prost-build; serde for the JSON form; spacetimedb-sdk for src/control/ (generated, committed).
 # AFFECTS: agent, coordinator, planner, relay, bench, netcheck.
 [package]
 name = "contracts"
@@ -12,3 +14,20 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+# Protobuf message runtime for the generated §6 types (the derive macros; protobuf bytes are not on any wire now).
+prost = { workspace = true }
+# JSON form of every message (fixtures, logs, the *_json columns in the SpacetimeDB tables). Derives come from build.rs.
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Error type for the llama.cpp output parsers.
+thiserror = { workspace = true }
+# Client SDK the generated bindings in src/control/ use (DbConnection, tables, reducers). Same exact version as
+# the spacetimedb crate in crates/control and the spacetime CLI/server on main.
+spacetimedb-sdk = { workspace = true }
+
+[build-dependencies]
+# protox parses .proto files into a FileDescriptorSet in pure Rust (replaces the protoc binary).
+protox = { workspace = true }
+# Turns that descriptor set into prost messages (no services: tonic is gone with D-13).
+prost-build = { workspace = true }
+prost-types = { workspace = true }

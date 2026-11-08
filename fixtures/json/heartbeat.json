@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "node_id": "example-dell",
+  "seq": 42,
+  "sent_at": "2026-11-07T22:10:05Z",
+  "rpc_server": {
+    "state": "running",
+    "pid": 12345,
+    "bind": "192.0.2.10",
+    "port": 50052,
+    "started_at": "2026-11-07T22:01:00Z",
+    "restarts": 0,
+    "last_exit_code": null,
+    "port_accepting": true
+  },
+  "load": { "cpu_util_pct": 63.5, "mem_used_bytes": 11200000000, "device_free_mib": null },
+  "relay": { "source": "debug_log", "bytes_in": 1048576, "bytes_out": 2097152, "graph_computes": 120, "last_activity_at": "2026-11-07T22:10:04Z" },
+  "power": { "on_ac": true, "battery_pct": 88 },
+  "last_error": null
+}

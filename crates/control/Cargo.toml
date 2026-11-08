@@ -1,0 +1,23 @@
+# CONCEPT: control crate, owned by WP-2. The SpacetimeDB module: the pool's control-plane tables and reducers.
+# WHY: D-13 (6:10pm): SpacetimeDB replaces gRPC. Registry, heartbeats, commands, plan, cluster status and the
+#      event history are tables; agents and the coordinator are clients that call reducers and subscribe.
+# DEPENDS ON: spacetimedb (=2.14.1, same version as the spacetime CLI/server on main and spacetimedb-sdk).
+#             Deliberately NOT on crates/contracts: that crate pulls tokio/native-tls (client SDK), which can't
+#             compile to wasm32. Nested §6 payloads cross the boundary as the contracts' serde JSON strings.
+# AFFECTS: crates/contracts/src/control/ (client bindings generated from this crate by `spacetime generate`),
+#          WP-3 agent, WP-4 coordinator, WP-7 status, WP-9 recovery.
+[package]
+name = "control"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+# cdylib = the .wasm that `spacetime publish` uploads; rlib lets `cargo build` / `cargo test` at the workspace
+# root compile it natively too.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+spacetimedb = { workspace = true }
+log = { workspace = true }

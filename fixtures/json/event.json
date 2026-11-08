@@ -1,0 +1,1 @@
+{ "schema_version": 1, "seq": 118, "at": "2026-11-07T22:40:12Z", "kind": "node_lost", "node_id": "example-mac-b", "plan_id": "plan-0003", "message": "no heartbeat for 6000 ms", "data": {} }

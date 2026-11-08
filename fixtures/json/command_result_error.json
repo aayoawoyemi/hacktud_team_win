@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "command_id": "cmd-0010",
+  "ok": false,
+  "error": { "code": "E_PORT_IN_USE", "message": "port 50052 is already in use (leftover rpc-server?)" }
+}

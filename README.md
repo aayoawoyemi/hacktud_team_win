@@ -49,12 +49,19 @@ bash scripts/setup
 ## Build (Rust workspace)
 
 The Rust code is one Cargo workspace: `Cargo.toml` at the root, one crate per role under `crates/`
-(contracts, agent, coordinator, planner, relay, bench, netcheck). `rust-toolchain.toml` pins Rust 1.93.1.
+(contracts, control, agent, coordinator, planner, relay, bench, netcheck). `rust-toolchain.toml` pins Rust 1.99.1
+plus the `wasm32-unknown-unknown` target.
 
-- Windows: Rust with the MSVC build tools. macOS: the Xcode command line tools.
-- No `protoc` needed: the contracts crate compiles its `.proto` files with `protox`, a pure-Rust compiler.
+- Windows: Rust (https://rustup.rs) with the MSVC build tools. macOS: rustup and the Xcode command line tools.
+- First run: rustup downloads Rust 1.99.1 and the wasm32 target automatically on the first `cargo` command here.
+- No `protoc` needed: the contracts crate compiles its `.proto` file with `protox`, a pure-Rust compiler.
 - Build and test everything from the repo root: `cargo build` and `cargo test`.
-- First run: rustup installs 1.93.1 if the machine lacks a toolchain with that name, even when `stable` is
-  already 1.93.1. To reuse an existing 1.93.1 `stable` instead of downloading, run once:
-  `rustup toolchain link 1.93.1 "$(rustc +stable --print sysroot)"`.
+- Control plane (D-13): `crates/control` is a SpacetimeDB module. Only the main machine needs the `spacetime` CLI
+  (it is also the server), pinned to 2.14.1:
+  - Windows: `iwr https://windows.spacetimedb.com -useb | iex`; macOS: `curl -sSf https://install.spacetimedb.com | sh`
+  - then `spacetime version install 2.14.1 --use` (the installer takes the newest release).
+  - `spacetime start` (listens on 0.0.0.0:3000), then
+    `spacetime publish -s local -p crates/control <db-name> -y`. Always `-s local`: the default server is maincloud.
+  - After changing `crates/control`, regenerate the committed client bindings:
+    `spacetime generate --lang rust --out-dir crates/contracts/src/control --module-path crates/control -y`.
 - Model files (`models/`, `*.gguf`) and `target/` are git-ignored.
