@@ -9,9 +9,7 @@ of the three can give a model 17.8 GiB.
 [How it works](#how-oasis-works) · [Results](#results) · [Run it](#run-it) · [Known limits](#known-limits) ·
 Built at HackUTD 2026 (Nov 7-8)
 
-<!-- SCREENSHOT: one frame of the dashboard on the real pool (01 pool, 3 Macs SERVING) from the demo footage.
-     Put it at docs/img/dashboard.png and replace this comment with:
-     ![The Oasis dashboard: three MacBook Airs serving Gemma 4 26B](docs/img/dashboard.png) -->
+![The Oasis dashboard on the real pool: three MacBook Airs, all connected and serving Gemma 4 12B](docs/img/dashboard.png)
 
 ## The problem
 
@@ -87,6 +85,8 @@ database itself enforces: `EMPTY → PLANNED → STARTING_HELPERS → LAUNCHING 
 `RECOVERING`, `FAILED` and `STOPPED` for failures and shutdown. A reducer rejects any transition outside that
 graph, so no program can put the pool into an impossible state.
 
+![The dashboard's SpacetimeDB view: the cluster state, the node, heartbeat, split_plan and command tables, and an answer computed across the machines](docs/img/spacetimedb.png)
+
 Rust runs on both sides of the database. The generated client bindings sit in `crates/contracts`, so a change to
 the schema that an agent or the coordinator does not match fails at compile time instead of at run time.
 
@@ -106,7 +106,8 @@ the schema that an agent or the coordinator does not match fails at compile time
 The dashboard is one HTML file (`web/oasis.html`) that reads SpacetimeDB and `llama-server` directly. It shows the
 machines and their states, the event history, the share of the model each machine holds, and a command line.
 Typing `ask <question>` streams an answer from the pool with its time to first token and tokens per second. The
-dashboard only reads; it never calls a reducer.
+dashboard only reads; it never calls a reducer. The screenshots on this page show `web/oasis-v4.html`, the version
+in the demo video, which adds a `02 spacetimedb` view with the live tables and a read-only SQL box.
 
 ## Results
 
@@ -203,7 +204,7 @@ command-line tools launched by another app (errno 65, Apple TN3179).
    ```
 
    Then open `http://<this-machine>:8000/oasis.html?stdb=http://<main-ip>:3000&llama=http://<main-ip>:8080`.
-   `oasis.html?demo=1` plays sample data without a pool. `oasis-v2.html` takes the same parameters and adds a
+   `oasis-v4.html` takes the same parameters. `oasis.html?demo=1` plays sample data without a pool. `oasis-v2.html` takes the same parameters and adds a
    model menu and a chat.
 
 6. **Chat.** `llama-server` on main serves the OpenAI-style API:
@@ -265,7 +266,7 @@ command-line tools launched by another app (errno 65, Apple TN3179).
 | `crates/bench` | Benchmark runner: time to first token and tokens/s, written as JSONL, CSV and markdown |
 | `crates/netcheck` | Port reachability, round-trip time and throughput between machines |
 | `crates/planner`, `crates/relay` | Placeholders for a fit-checking split planner and relay telemetry |
-| `web/` | Dashboards: `oasis.html` (the demo dashboard) and `oasis-v2.html` (adds a model menu and chat) |
+| `web/` | Dashboards: `oasis.html`, `oasis-v4.html` (adds the SpacetimeDB view) and `oasis-v2.html` (adds a model menu and chat) |
 | `docs/` | [Network setup](docs/network.md), [demo runbook](docs/demo-runbook.md), [team workflow](docs/team-workflow.md) |
 | `test-runs/` | Logs and numbers from every run on the hardware |
 | `scripts/` | Team git commands and the night bench |
