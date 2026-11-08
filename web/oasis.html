@@ -887,23 +887,23 @@ async function runDemo() {
       models.gemma12 = { name: 'Gemma 4 12B', quant: 'Q4_K_M', layers: 48, weights: 6.6, kvPerToken: 196608 / 1073741824 };
       models.gemma26 = { name: 'Gemma 4 26B A4B', quant: 'Q8_0', layers: 30, weights: 25.0, kvPerToken: 98304 / 1073741824 };
       fixtureNames.gemma12 = 'gemma-4-12b'; fixtureNames.gemma26 = 'gemma-4-26b-a4b';
-      nodes.splice(0, nodes.length, mk('main', 'm5-main', 'MacBook Pro M5 / 24 GB / 192.168.8.174', 24, 17.8, true));
-      names.main = 'm5-main';
+      nodes.splice(0, nodes.length, mk('main', 'm3-main', 'MacBook Air M3 / 16 GB / 192.168.8.113', 16, 11.8, true));
+      names.main = 'm3-main';
       modelKey = 'gemma12'; selected = 'main'; events = []; renderEvents(); render();
       $('live-ttft').textContent = '\u2013'; $('live-tps').textContent = '\u2013'; $('live-speed-note').textContent = 'not measured';
       demoCaption('main is up: SpacetimeDB holds the pool state, the coordinator waits for helpers');
       await sleep(2500);
 
-      nodes.push(mk('m3air', 'm3-air', 'MacBook Air M3 / 16 GB / 192.168.8.113', 16, 11.8)); names.m3air = 'm3-air'; render();
-      demoCaption('discovery: m3-air runs one agent command; it reports its GPU and free memory');
+      nodes.push(mk('m5', 'm5', 'MacBook Pro M5 / 24 GB / 192.168.8.174', 24, 17.8)); names.m5 = 'm5'; render();
+      demoCaption('discovery: m5 runs one agent command; it reports its GPU and free memory');
       await sleep(1400);
       nodes[1].connection = 'connected'; render();
-      addEvent('node_registered m3-air / 11.8 GiB GPU');
+      addEvent('node_registered m5 / 17.8 GiB GPU');
       await sleep(1800);
 
-      demoCaption('fitting + placement: gemma-4-12b split by layers, main + m3-air; weights stream to the helper');
+      demoCaption('fitting + placement: gemma-4-12b split by layers, main + m5; weights stream to the helper');
       nodes.forEach(n => { n.modelState = 'loading'; n.loadedModel = 'gemma12'; }); render();
-      FLOW.loading(['m3air']);
+      FLOW.loading(['m5']);
       await sleep(3800);
       FLOW.loading([], false);
       nodes.forEach(n => { n.modelState = 'serving'; }); render();
@@ -925,7 +925,7 @@ async function runDemo() {
       demoCaption('the pool now holds gemma-4-26b (25 GiB), more than any one laptop: re-plan across three machines');
       modelKey = 'gemma26';
       nodes.forEach(n => { n.modelState = 'loading'; n.loadedModel = 'gemma26'; }); render();
-      FLOW.loading(['m3air', 'm5air']);
+      FLOW.loading(['m5', 'm5air']);
       await sleep(5000);
       FLOW.loading([], false);
       nodes.forEach(n => { n.modelState = 'serving'; }); render();
