@@ -10,18 +10,16 @@
 //!                 cargo test -p coordinator --test full_cycle -- --ignored --nocapture
 //! AFFECTS: nothing at runtime.
 //!
-//! The helper agents here are STAND-INS that follow the CONTRACTS.md agent pattern (register, subscribe to own
-//! commands, claim -> act -> complete, 1 s heartbeat). The real WP-3 agent's SpacetimeDB wiring isn't merged yet;
-//! when it is, this test should start real `agent` processes instead.
+//! The helpers are real `agent` processes (crates/agent, built first with `cargo build -p agent`), each with its own
+//! TOML config, SpacetimeDB identity and rpc-server port, stopped with SIGINT like Ctrl-C.
 
 use contracts::control::*;
 use coordinator::cycle::{Config, Coordinator};
 use coordinator::launch::accepting;
-use spacetimedb_sdk::{DbContext, Table};
+use spacetimedb_sdk::Table;
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
-use std::thread::{self, sleep};
+use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 const URL: &str = "http://127.0.0.1:3000";
@@ -31,188 +29,48 @@ fn env(k: &str) -> String {
     std::env::var(k).unwrap_or_else(|_| panic!("set {k} (see the header of this file)"))
 }
 
-/// Stand-in agent: one SpacetimeDB identity + one rpc-server on `port`.
+/// A real `agent` process (WP-3, crates/agent) with its own config: one SpacetimeDB identity + one rpc-server port.
 struct Agent {
-    conn: Arc<DbConnection>,
-    rpc: Arc<Mutex<Option<Child>>>,
-    stop: Arc<AtomicBool>,
-    thread: Option<thread::JoinHandle<()>>,
+    child: Child,
+    port: u16,
 }
 
 impl Agent {
-    fn spawn(node_id: &str, port: u16, rpc_server: String) -> Agent {
-        let id = node_id.to_string();
-        let sub = format!("SELECT * FROM command WHERE node_id = '{id}'");
-        let conn = DbConnection::builder()
-            .with_uri(URL)
-            .with_database_name(DB)
-            .on_connect(move |c, _, _| {
-                c.subscription_builder().subscribe([sub.clone()]);
-            })
-            .build()
-            .expect("agent connects");
-        conn.run_threaded();
-        let info = NodeInfo {
-            node_id: id.clone(),
-            role: "helper".into(),
-            hostname: id.clone(),
-            os_family: "macos".into(),
-            arch: "aarch64".into(),
-            cpu_model: "Apple M5".into(),
-            logical_cores: Some(10),
-            total_memory_bytes: 24 << 30,
-            available_memory_bytes: 12 << 30,
-            // What --list-devices reports on an M5 with b8665: Metal plus the BLAS device that must be excluded.
-            devices: vec![
-                Device {
-                    name: "MTL0".into(),
-                    backend: "Metal".into(),
-                    total_mib: 18186,
-                    free_mib: 18185,
-                    unified_memory: Some(true),
-                },
-                Device {
-                    name: "BLAS".into(),
-                    backend: "BLAS".into(),
-                    total_mib: 0,
-                    free_mib: 0,
-                    unified_memory: Some(true),
-                },
-            ],
-            llama_build: Some(8665),
-            llama_commit: Some("b8635075f".into()),
-            rpc_protocol: Some("3.6.1".into()),
-            rpc_server_devices: vec!["MTL0".into()],
-            addresses: vec!["127.0.0.1".into()],
-        };
-        conn.reducers
-            .register_node(info, "{}".into())
-            .expect("register_node");
-
-        let conn = Arc::new(conn);
-        let rpc: Arc<Mutex<Option<Child>>> = Arc::default();
-        let stop = Arc::new(AtomicBool::new(false));
-        let (c, r, s) = (conn.clone(), rpc.clone(), stop.clone());
-        let thread = thread::spawn(move || {
-            let mut seq = 0u64;
-            while !s.load(Ordering::SeqCst) {
-                for cmd in
-                    c.db.command()
-                        .iter()
-                        .filter(|x| x.node_id == id && x.status == "pending")
-                {
-                    let (tx, rx) = mpsc::channel();
-                    c.reducers
-                        .claim_command_then(cmd.command_id, move |_, res| {
-                            let _ = tx.send(matches!(res, Ok(Ok(()))));
-                        })
-                        .unwrap();
-                    if !rx.recv_timeout(Duration::from_secs(5)).unwrap_or(false) {
-                        continue; // already claimed
-                    }
-                    let (ok, err) = act(&cmd, port, &rpc_server, &r);
-                    c.reducers
-                        .complete_command(
-                            cmd.command_id,
-                            ok,
-                            "{}".into(),
-                            err.as_ref().map(|_| "E_RPC_SERVER_START".into()),
-                            err,
-                        )
-                        .unwrap();
-                }
-                seq += 1;
-                let running = r
-                    .lock()
-                    .unwrap()
-                    .as_mut()
-                    .is_some_and(|ch| ch.try_wait().ok().flatten().is_none());
-                let hb = HeartbeatInfo {
-                    seq,
-                    rpc_state: if running { "running" } else { "not_started" }.into(),
-                    rpc_pid: r.lock().unwrap().as_ref().map(Child::id),
-                    rpc_port: Some(port.into()),
-                    port_accepting: running && accepting(&format!("127.0.0.1:{port}")),
-                    cpu_util_pct: None,
-                    mem_used_bytes: None,
-                    relay_bytes_in: None,
-                    relay_bytes_out: None,
-                    relay_graph_computes: None,
-                    on_ac: None,
-                    battery_pct: None,
-                    last_error_code: None,
-                    last_error_message: None,
-                };
-                let _ = c.reducers.send_heartbeat(hb, "{}".into());
-                sleep(Duration::from_millis(
-                    contracts::defaults::HEARTBEAT_INTERVAL_MS / 2,
-                ));
-            }
-        });
-        Agent {
-            conn,
-            rpc,
-            stop,
-            thread: Some(thread),
-        }
-    }
-}
-
-/// Do one command: start or stop rpc-server. Returns (ok, error message).
-fn act(
-    cmd: &CommandRow,
-    port: u16,
-    bin: &str,
-    rpc: &Mutex<Option<Child>>,
-) -> (bool, Option<String>) {
-    match cmd.kind.as_str() {
-        "start_rpc_server" => {
-            let args: serde_json::Value = serde_json::from_str(&cmd.args_json).unwrap_or_default();
-            let mut c = Command::new(bin);
-            c.args(["-H", "127.0.0.1", "-p", &port.to_string(), "-c"]);
-            if let Some(d) = args["devices"].as_array() {
-                let d: Vec<&str> = d.iter().filter_map(|v| v.as_str()).collect();
-                c.args(["-d", &d.join(",")]);
-            }
-            let child = match c.stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
-                Ok(ch) => ch,
-                Err(e) => return (false, Some(e.to_string())),
-            };
-            *rpc.lock().unwrap() = Some(child);
-            let t = Instant::now();
-            while !accepting(&format!("127.0.0.1:{port}")) {
-                if t.elapsed() > Duration::from_secs(15) {
-                    return (false, Some("rpc-server not listening in 15 s".into()));
-                }
-                sleep(Duration::from_millis(100));
-            }
-            (true, None)
-        }
-        "stop_rpc_server" => {
-            if let Some(mut ch) = rpc.lock().unwrap().take() {
-                let _ = ch.kill(); // rpc-server ignores SIGINT; kill = SIGKILL
-                let _ = ch.wait();
-            }
-            (true, None)
-        }
-        other => (
-            false,
-            Some(format!("stand-in agent: {other} not supported")),
-        ),
+    fn spawn(node_id: &str, port: u16, llama_bin_dir: &str, dir: &Path) -> Agent {
+        let bin = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/agent");
+        assert!(bin.exists(), "build the agent first: cargo build -p agent");
+        let cfg = dir.join(format!("{node_id}.toml"));
+        let toml = format!(
+            "node_id = \"{node_id}\"\nrole = \"helper\"\nspacetime_uri = \"{URL}\"\nspacetime_db = \"{DB}\"\n\
+             llama_bin_dir = \"{llama_bin_dir}\"\nrpc_bind = \"127.0.0.1\"\nrpc_port = {port}\nrpc_cache = true\n"
+        );
+        std::fs::write(&cfg, toml).unwrap();
+        let log = std::fs::File::create(dir.join(format!("{node_id}.log"))).unwrap();
+        let child = Command::new(bin)
+            .arg(&cfg)
+            .stdin(Stdio::null())
+            .stdout(log.try_clone().unwrap())
+            .stderr(log)
+            .spawn()
+            .expect("spawn agent");
+        Agent { child, port }
     }
 }
 
 impl Drop for Agent {
+    /// Ctrl-C, like a person stopping it: the agent stops its rpc-server and disconnects. SIGKILL only as fallback.
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::SeqCst);
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
+        let _ = Command::new("kill")
+            .args(["-INT", &self.child.id().to_string()])
+            .status();
+        let t = Instant::now();
+        while self.child.try_wait().ok().flatten().is_none()
+            && t.elapsed() < Duration::from_secs(10)
+        {
+            sleep(Duration::from_millis(100));
         }
-        if let Some(mut ch) = self.rpc.lock().unwrap().take() {
-            let _ = ch.kill();
-            let _ = ch.wait();
-        }
-        let _ = self.conn.disconnect();
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 
@@ -286,12 +144,11 @@ fn on_helper(devs: &[String], port: u16) -> bool {
 #[ignore = "needs local SpacetimeDB (pool-smoke), llama.cpp b8665 and a GGUF; see file header"]
 fn full_cycle_two_helpers_then_join() {
     let bin = env("LLAMA_BIN_DIR");
-    let rpc_server = format!("{bin}/rpc-server");
     let port = 8089u16;
     let log_dir = std::env::temp_dir().join(format!("wp4-full-cycle-{}", std::process::id()));
     std::fs::create_dir_all(&log_dir).unwrap();
     let cfg = Config {
-        spacetime_url: URL.into(),
+        spacetime_uri: URL.into(),
         spacetime_db: DB.into(),
         token: Some(env("SPACETIME_TOKEN")),
         llama_server_path: format!("{bin}/llama-server"),
@@ -304,8 +161,8 @@ fn full_cycle_two_helpers_then_join() {
     };
 
     println!("1. register: helper-a, helper-b");
-    let a = Agent::spawn("helper-a", 50072, rpc_server.clone());
-    let b = Agent::spawn("helper-b", 50073, rpc_server.clone());
+    let a = Agent::spawn("helper-a", 50072, &bin, &log_dir);
+    let b = Agent::spawn("helper-b", 50073, &bin, &log_dir);
     let mut c = Coordinator::connect(cfg).expect("coordinator connects");
     wait_until("2 helpers online", 15, || c.helpers().len() == 2);
     println!("  nodes: {:?}", node_states(&c));
@@ -336,7 +193,7 @@ fn full_cycle_two_helpers_then_join() {
     assert!(!ask(port, "Say hi in five words.").is_empty());
 
     println!("6. join: helper-c");
-    let cc = Agent::spawn("helper-c", 50074, rpc_server.clone());
+    let cc = Agent::spawn("helper-c", 50074, &bin, &log_dir);
     let t1 = Instant::now();
     wait_until("re-plan to 3 helpers", 180, || {
         c.tick().expect("tick");
@@ -361,11 +218,22 @@ fn full_cycle_two_helpers_then_join() {
     println!("7. stop");
     c.shutdown().expect("shutdown");
     assert_eq!(c.cluster_state(), "STOPPED");
-    wait_until("rpc-servers stopped", 15, || {
+    // The coordinator's stop_rpc_server commands (not the agents exiting) must close every helper port.
+    wait_until("rpc-servers stopped by command", 15, || {
         [&a, &b, &cc]
             .iter()
-            .all(|ag| ag.rpc.lock().unwrap().is_none())
+            .all(|ag| !accepting(&format!("127.0.0.1:{}", ag.port)))
     });
+    let mut cmds: Vec<(u64, String, String, String)> = c
+        .conn
+        .db
+        .command()
+        .iter()
+        .map(|r| (r.command_id, r.node_id, r.kind, r.status))
+        .collect();
+    cmds.sort();
+    println!("  commands: {cmds:?}");
+    assert!(cmds.iter().all(|(_, _, _, st)| st == "ok"), "{cmds:?}");
     println!("  nodes: {:?}", node_states(&c));
     let events: Vec<String> = c
         .conn

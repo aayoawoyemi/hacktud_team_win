@@ -29,7 +29,7 @@ use std::time::{Duration, Instant};
 #[serde(default)]
 pub struct Config {
     /// SpacetimeDB on main, e.g. "http://127.0.0.1:3000".
-    pub spacetime_url: String,
+    pub spacetime_uri: String,
     pub spacetime_db: String,
     /// Publisher token (admin). Never commit it; the binary reads SPACETIME_TOKEN.
     #[serde(skip)]
@@ -49,7 +49,7 @@ impl Default for Config {
     fn default() -> Self {
         use contracts::defaults as d;
         Self {
-            spacetime_url: format!("http://127.0.0.1:{}", d::SPACETIME_PORT),
+            spacetime_uri: format!("http://127.0.0.1:{}", d::SPACETIME_PORT),
             spacetime_db: d::DB_NAME.into(),
             token: None,
             llama_server_path: "llama-server".into(),
@@ -82,7 +82,7 @@ impl Coordinator {
     pub fn connect(cfg: Config) -> Result<Self, String> {
         let (tx, rx) = mpsc::channel();
         let conn = DbConnection::builder()
-            .with_uri(cfg.spacetime_url.clone())
+            .with_uri(cfg.spacetime_uri.clone())
             .with_database_name(cfg.spacetime_db.clone())
             .with_token(cfg.token.clone())
             .on_connect(move |conn, _, _| {
@@ -98,7 +98,7 @@ impl Coordinator {
                     ]);
             })
             .build()
-            .map_err(|e| format!("E_TRANSPORT: connect {}: {e}", cfg.spacetime_url))?;
+            .map_err(|e| format!("E_TRANSPORT: connect {}: {e}", cfg.spacetime_uri))?;
         conn.run_threaded();
         rx.recv_timeout(Duration::from_secs(10))
             .map_err(|_| "E_TRANSPORT: subscription not applied in 10 s".to_string())?;

@@ -1,0 +1,10 @@
+# Example agent config for a helper Mac (O-24). Copy, edit, run: agent agent.toml   (Ctrl-C stops it cleanly)
+node_id = "helper-m5"                            # unique per machine (O-16); default = hostname
+role = "helper"                                  # "main" on the machine that runs llama-server
+spacetime_uri = "http://192.168.8.10:3000"       # SpacetimeDB on the main Mac
+spacetime_db = "pool"
+llama_bin_dir = "/Users/you/llama-b8665/llama-b8665"
+rpc_bind = "0.0.0.0"                             # reachable from main; only on our private router (R-09)
+rpc_port = 50052
+rpc_cache = true                                 # -c: helpers keep their layers, so reloads skip the network
+# rpc_devices = "MTL0"                           # default: GPU devices only (BLAS excluded on macOS)

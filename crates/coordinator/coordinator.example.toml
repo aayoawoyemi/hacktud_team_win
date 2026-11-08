@@ -1,6 +1,6 @@
 # Example coordinator config (O-24). Copy, edit, run: SPACETIME_TOKEN=<publisher token> coordinator coordinator.toml
 # Every key is optional; defaults come from contracts::defaults.
-spacetime_url = "http://127.0.0.1:3000"
+spacetime_uri = "http://127.0.0.1:3000"
 spacetime_db = "pool"
 llama_server_path = "/Users/you/llama-b8665/llama-b8665/llama-server"
 model_path = "/Users/you/models/model.gguf"

@@ -51,10 +51,16 @@ pub struct AgentConfig {
     pub rpc_debug_level: Option<u8>,
     /// `LLAMA_CACHE` for rpc-server. None = llama.cpp default.
     pub llama_cache_dir: Option<PathBuf>,
-    /// Heartbeat period (O-26 = 1000 ms). Unused until D-13 wiring.
+    /// Heartbeat period (O-26 = 1000 ms).
     pub heartbeat_interval_ms: u64,
     /// Where logs go (O-24). TODO(R3.4/R3.14): mirror the rpc-server ring into a file here.
     pub log_dir: Option<PathBuf>,
+    /// SpacetimeDB on main (D-13), e.g. "http://192.168.8.10:3000". Key name from CONTRACTS.md "Not in the contract yet".
+    pub spacetime_uri: String,
+    /// Database name (O-27 = "pool"; tests use "pool-smoke").
+    pub spacetime_db: String,
+    /// §5.1 role: "helper" (lends its GPU via rpc-server) or "main" (the machine running llama-server).
+    pub role: String,
 }
 
 impl Default for AgentConfig {
@@ -74,6 +80,9 @@ impl Default for AgentConfig {
             // O-26 (Aayo 7:55pm): 1000 ms; same value as contracts::defaults::HEARTBEAT_INTERVAL_MS.
             heartbeat_interval_ms: 1000,
             log_dir: None,
+            spacetime_uri: "http://127.0.0.1:3000".into(),
+            spacetime_db: "pool".into(),
+            role: "helper".into(),
         }
     }
 }

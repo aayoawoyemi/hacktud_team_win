@@ -50,7 +50,9 @@ mod tests {
         let port = l.local_addr().unwrap().port();
         assert!(tcp_accepting("127.0.0.1", port, Duration::from_secs(2)).await);
         drop(l);
-        assert!(!tcp_accepting("127.0.0.1", port, Duration::from_millis(500)).await);
+        // Not the freed port: under parallel tests another test can bind it again in between (flaked on macOS).
+        // Port 1 (tcpmux) has no listener on any dev machine, so connect is refused deterministically.
+        assert!(!tcp_accepting("127.0.0.1", 1, Duration::from_millis(500)).await);
     }
 
     #[test]
