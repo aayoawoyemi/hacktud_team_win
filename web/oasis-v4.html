@@ -150,11 +150,64 @@ nav>button.active-tab{border-bottom:1px solid var(--accent);margin-bottom:-1px}
 .warp-dev{margin-left:8px;background:none;border:1px solid var(--faint);color:var(--muted);font-size:10px;padding:0 8px;cursor:pointer}
 @media(max-width:1100px){.tables-pane.stdb-view{grid-template-columns:1fr;height:auto}.stdb-view .tv-grid{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:none;grid-auto-rows:300px}.stdb-side{border-left:0;border-top:1px solid var(--faint)}}
 @media(max-width:650px){.stdb-view .tv-grid{grid-template-columns:1fr}}
+/* v5: 03 measured + 04 scale. Chalkboard look: the page's black board with a faint grain, chalk-white strokes through
+   the #chalk SVG filter, Chalkduster headings, SF Mono numbers, oasis blue only for each panel's headline number. Static. */
+.chalk-defs{position:absolute;width:0;height:0;overflow:hidden}
+.chalk-pane{--chalk:oklch(.93 .005 90);--chalk-dim:oklch(.74 .005 90);--chalk-blue:#8fb8ee;position:relative;height:max(560px,calc(100vh - 215px));overflow:hidden;padding:12px 16px 14px;color:var(--chalk);background:radial-gradient(ellipse 60% 50% at 28% 22%,oklch(1 0 0 / .03),transparent 70%),radial-gradient(ellipse 50% 45% at 78% 80%,oklch(1 0 0 / .022),transparent 70%),url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),oklch(.12 0 0)}
+.chalk-pane[hidden]{display:none}
+.ch-h{font-family:"Chalkduster","Chalkboard SE",ui-rounded,cursive;font-weight:400;margin:0;color:var(--chalk);filter:url(#chalk-soft);letter-spacing:.01em}
+.ch-h small{display:block;margin-top:3px;font:11px var(--mono);color:var(--chalk-dim);filter:none;letter-spacing:.03em}
+.chalk-pane i.ch-tag{display:inline-block;width:auto;height:auto;background:none;flex:none;font:normal 10px/1.4 var(--mono);letter-spacing:.04em;color:var(--chalk-dim);border:1px dashed oklch(.6 0 0);border-radius:3px;padding:0 5px;white-space:nowrap;align-self:center}
+.ch-acc{color:var(--chalk-blue)!important}
+.ch-big{font:400 40px/1 var(--mono);color:var(--chalk);filter:url(#chalk-soft);letter-spacing:-.01em}
+.ch-mid{font:400 26px/1 var(--mono);color:var(--chalk);filter:url(#chalk-soft)}
+.chalk-grid03{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:14px;height:100%}
+.chalk-panel{position:relative;display:flex;flex-direction:column;gap:6px;min-height:0;overflow:hidden;padding:12px 18px 10px}
+.chalk-panel::before{content:"";position:absolute;inset:3px;border:2px solid oklch(.93 0 0 / .42);border-radius:4px;filter:url(#chalk);pointer-events:none}
+.ch-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex:none}
+.ch-head .ch-h{font-size:22px;line-height:1.2;padding-top:4px}
+.ch-hl{display:flex;align-items:baseline;gap:4px 10px;flex-wrap:wrap;justify-content:flex-end;text-align:right}.ch-hl .ch-tag{flex-basis:100%;width:max-content!important;margin-left:auto}
+.ch-say{font-family:"Chalkduster","Chalkboard SE",ui-rounded,cursive;font-size:16px;color:var(--chalk)}
+.ch-row{display:flex;gap:26px;align-items:baseline;flex:none;flex-wrap:wrap}
+.ch-stat{display:flex;align-items:baseline;gap:8px;font-size:13px;color:var(--chalk-dim)}
+.ch-svg{display:block;width:100%;flex:1 1 auto;min-height:0;color:var(--chalk);overflow:visible}
+.ch-ink{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ch-ink use{stroke-width:1.5}
+.ch-ink .ch-line{stroke:var(--chalk);stroke-width:3}
+.ch-txt text{font:13px var(--mono);fill:var(--chalk-dim)}.ch-txt .ch-num{fill:var(--chalk);font-size:13px}.ch-txt .ch-small{font-size:11px}
+.ch-hand text{font:16px "Chalkduster","Chalkboard SE",ui-rounded,cursive;fill:var(--chalk)}
+.ch-foot{margin:0;font-size:12.5px;line-height:1.5;color:var(--chalk-dim);flex:none}.ch-foot b{color:var(--chalk);font-weight:400}
+.ch4-top{display:flex;align-items:baseline;gap:20px;margin-bottom:6px}
+.ch-title{font-size:32px;line-height:1.15}
+.ch4-sub{font-size:12px;color:var(--chalk-dim)}
+.ch4-table{display:flex;flex-direction:column}
+.ch4-row{position:relative;display:grid;grid-template-columns:200px minmax(0,1.25fr) repeat(3,minmax(0,1fr));gap:18px;padding:16px 6px;align-items:start}
+.ch4-row+.ch4-row::before{content:"";position:absolute;left:0;right:0;top:0;border-top:2px solid oklch(.93 0 0 / .32);filter:url(#chalk)}
+.ch4-headrow{padding:2px 6px 8px;font-size:12px;color:var(--chalk-dim);align-items:end}
+.ch4-headrow span{display:flex;align-items:center;gap:7px}
+.ch-ic1{width:24px;height:20px;fill:none;stroke:var(--chalk);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;filter:url(#chalk-soft);flex:none}
+.ch4-ref .ch-h{font-size:19px;line-height:1.3}
+.ch4-model{display:flex;flex-direction:column;gap:2px;font-size:12px;line-height:1.45;color:var(--chalk-dim)}
+.ch4-model b{font-weight:400;font-size:17px;color:var(--chalk)}
+.ch4-also{font-size:11px;color:oklch(.62 0 0);margin-top:2px}
+.ch4-m{display:flex;flex-direction:column;gap:5px;min-width:0}
+.ch4-m small{font-size:11px;color:var(--chalk-dim)}
+.ch4-n{display:flex;align-items:center;gap:10px}
+.ch4-n b{font:400 34px/1 var(--mono);color:var(--chalk);filter:url(#chalk-soft);min-width:44px}
+.chalk-icons svg{display:block;color:var(--chalk);filter:url(#chalk)}
+.chalk-icons use{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.chalk-pane#chalk-04{display:flex;flex-direction:column}.ch4-bottom{margin-top:auto!important;display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;align-items:end;margin-top:8px}
+.ch4-box{position:relative;padding:10px 18px 10px;display:grid;grid-template-columns:auto 1fr;column-gap:26px;align-items:start}
+.ch4-box::before{content:"";position:absolute;inset:0;border:2px dashed oklch(.93 0 0 / .45);border-radius:4px;filter:url(#chalk);pointer-events:none}
+.ch4-box .ch-h{font-size:20px;grid-row:1/3}
+.ch4-box ul{margin:0;padding:0 0 0 16px;columns:2;column-gap:28px;font-size:12.5px;line-height:1.55;color:var(--chalk)}
+.ch4-verify{grid-column:2;margin:6px 0 0;font-size:12px;color:var(--warning)}
+.chalk-pane .ch4-note i.ch-tag{white-space:normal}.ch4-note{margin:0;max-width:330px;text-align:right}.ch4-note .ch-tag{white-space:normal;display:inline-block;line-height:1.5;padding:3px 7px}
 </style></head>
 <body data-layout="multiplexer" data-palette="graphite" data-type="system" data-model-behavior="inspector"><a href="#workspace" class="skip">Skip to connected nodes</a>
 <div class="terminal-shell">
 <header><a class="wordmark" href="#workspace">oasis<span>_</span></a><span class="path">~/cluster/local</span><span class="environment"><i></i> fixture session <span>/</span> no cluster connected</span><button id="help-open" aria-label="Keyboard help" class="help-button">?</button></header>
-<nav aria-label="Workspace"><button id="pool-tab" class="active-tab" role="tab" aria-selected="true" aria-controls="workspace">01 pool</button><button id="tables-tab" role="tab" aria-selected="false" aria-controls="tables-pane">02 spacetimedb</button><button id="model-tab" aria-controls="model-controls" aria-expanded="false">model</button><button id="events-tab">events</button><span class="spacer"></span><span id="session-count">3 connected / 3 nodes</span></nav>
+<nav aria-label="Workspace"><button id="pool-tab" class="active-tab" role="tab" aria-selected="true" aria-controls="workspace">01 pool</button><button id="tables-tab" role="tab" aria-selected="false" aria-controls="tables-pane">02 spacetimedb</button><button id="model-tab" aria-controls="model-controls" aria-expanded="false">model</button><button id="measured-tab" role="tab" aria-selected="false" aria-controls="chalk-03">03 measured</button><button id="scale-tab" role="tab" aria-selected="false" aria-controls="chalk-04">04 scale</button><span class="spacer"></span><span id="session-count">3 connected / 3 nodes</span></nav>
 <main id="workspace" class="workspace">
 <aside class="directory"><div class="pane-caption">nodes <span id="directory-count">[3]</span></div><div id="directory"></div><p class="directory-foot">rpc order<br><strong>helpers → main</strong></p></aside>
 <section class="node-stage" aria-labelledby="nodes-title"><div class="stage-heading"><div><h1 id="nodes-title">Connected nodes</h1><p>Select a node to inspect its contribution.</p></div><span class="label">illustrative topology</span></div>
@@ -170,8 +223,109 @@ nav>button.active-tab{border-bottom:1px solid var(--accent);margin-bottom:-1px}
 <div id="tv-load" class="tv-load" hidden><div class="tv-load-head" id="tv-load-head">model loading / est. at 112 MB/s per machine</div><div id="tv-bars" class="tv-bars"></div></div></div>
 <div id="tv-grid" class="tv-grid"></div>
 <aside class="stdb-side"><div class="pane-caption">chat <span>main's llama-server / click a table title for all rows</span></div><div class="tv-chat"><form id="tv-chat-form"><input id="tv-chat-input" placeholder="ask the pool a question" autocomplete="off" aria-label="Question for the pool"><button type="submit">ask ↵</button></form><div class="tv-chat-meta" id="tv-computed">computed on: –</div><div class="tv-chat-meta" id="tv-chat-meta">TTFT – / – tok/s</div><div class="tv-chat-answer" id="tv-chat-answer" aria-live="polite"></div></div></aside></section>
+<!-- v5 (Aayo 9:30): 03 measured + 04 scale. Static chalkboard views to point at while talking. No animation, nothing
+     to click. Strokes go through the #chalk filter (feTurbulence + feDisplacementMap, small scale, grain mask).
+     Numbers: 03 from README "Results" (origin/main, test-runs/bench/); 04 from prior-art-and-scale.md + HF model cards. -->
+<svg class="chalk-defs" width="0" height="0" aria-hidden="true" focusable="false"><defs>
+<filter id="chalk" x="-5%" y="-5%" width="110%" height="110%"><feTurbulence type="fractalNoise" baseFrequency=".045" numOctaves="2" seed="4" result="warp"/><feDisplacementMap in="SourceGraphic" in2="warp" scale="2.6" xChannelSelector="R" yChannelSelector="G" result="moved"/><feTurbulence type="fractalNoise" baseFrequency="1.1" numOctaves="1" seed="9" result="grain"/><feColorMatrix in="grain" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  -2.4 0 0 0 1.95" result="mask"/><feComposite in="moved" in2="mask" operator="in"/></filter>
+<filter id="chalk-soft" x="-5%" y="-5%" width="110%" height="110%"><feTurbulence type="fractalNoise" baseFrequency=".06" numOctaves="1" seed="2" result="warp"/><feDisplacementMap in="SourceGraphic" in2="warp" scale="1.2" xChannelSelector="R" yChannelSelector="G" result="moved"/><feTurbulence type="fractalNoise" baseFrequency="1.4" numOctaves="1" seed="5" result="grain"/><feColorMatrix in="grain" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  -1.6 0 0 0 1.75" result="mask"/><feComposite in="moved" in2="mask" operator="in"/></filter>
+<pattern id="chalk-hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(35)"><path d="M0 0v7" stroke="currentColor" stroke-width="1.2" opacity=".35"/></pattern>
+<marker id="chalk-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 9 5 1 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></marker>
+<symbol id="ic-air" viewBox="0 0 24 20"><path d="M5 3.5h14v10.5H5zM2 15.5h20l-1.6 2.5H3.6z"/></symbol>
+<symbol id="ic-gpu" viewBox="0 0 24 20"><path d="M3 1h11v18H3zM5.5 4h6M5.5 6.5h6M14 10h8v5h-8"/><circle cx="16.4" cy="12.5" r="1.3"/><circle cx="19.6" cy="12.5" r="1.3"/></symbol>
+<symbol id="ic-office" viewBox="0 0 24 20"><path d="M6.5 1h11v18h-11zM9 4.5h6M9 7h6"/><circle cx="12" cy="14.5" r="1.1"/></symbol>
+</defs></svg>
+<section class="chalk-pane" id="chalk-03" aria-label="03 measured: results from the three-Air pool" hidden>
+<div class="chalk-grid03">
+<article class="chalk-panel">
+<div class="ch-head"><h2 class="ch-h">model size</h2><div class="ch-hl"><b class="ch-big ch-acc">1.4×</b><span class="ch-say">the largest Mac</span><i class="ch-tag">measured</i></div></div>
+<svg class="ch-svg" viewBox="0 0 660 200" role="img" aria-label="Gemma 4 26B Q8 is 25.0 GiB; each Mac's GPU budget is smaller: M3 Air 11.8 GiB, M5 Air 17.8 GiB, M5 Air 17.8 GiB. Split in the run: M3 5.7 GB, M5 9.9 GB, M5 9.9 GB, all 31 layers on GPU.">
+<g class="ch-ink" filter="url(#chalk)">
+<rect x="160" y="8" width="470" height="24" fill="url(#chalk-hatch)"/><rect x="160" y="8" width="470" height="24"/>
+<rect x="160" y="50" width="222" height="20"/><rect x="160" y="86" width="335" height="20"/><rect x="160" y="122" width="335" height="20"/>
+<path d="M630 2v148" stroke-dasharray="5 6"/>
+<rect x="160" y="166" width="105" height="22"/><rect x="265" y="166" width="182" height="22"/><rect x="447" y="166" width="183" height="22"/>
+</g>
+<g class="ch-txt"><text x="0" y="19">gemma 4 26B Q8</text><text x="0" y="33" class="ch-num">25.0 GiB</text>
+<text x="0" y="60">M3 Air GPU</text><text x="0" y="73" class="ch-num">11.8 GiB</text>
+<text x="0" y="96">M5 Air GPU</text><text x="0" y="109" class="ch-num">17.8 GiB</text>
+<text x="0" y="132">M5 Air GPU</text><text x="0" y="145" class="ch-num">17.8 GiB</text>
+<text x="0" y="176">split in the run</text><text x="0" y="190" class="ch-small">all 31 layers on GPU</text>
+<text x="212" y="181" text-anchor="middle" class="ch-num">M3 5.7 GB</text><text x="356" y="181" text-anchor="middle" class="ch-num">M5 9.9 GB</text><text x="538" y="181" text-anchor="middle" class="ch-num">M5 9.9 GB</text></g>
+<g class="ch-hand" filter="url(#chalk-soft)"><text x="394" y="66">✗ doesn't fit</text><text x="507" y="102">✗ doesn't fit</text><text x="507" y="138">✗ doesn't fit</text></g>
+</svg>
+</article>
+<article class="chalk-panel">
+<div class="ch-head"><h2 class="ch-h">speed <small>B3 · 26B on 3 Airs</small></h2><div class="ch-hl"><b class="ch-big ch-acc">12.5 tok/s</b><i class="ch-tag">measured</i></div></div>
+<div class="ch-row"><div class="ch-stat"><b class="ch-mid">0.6 s</b><span>to first token</span><i class="ch-tag">measured</i></div><div class="ch-stat"><b class="ch-mid">9/9</b><span>requests OK</span><i class="ch-tag">measured</i></div></div>
+<svg class="ch-svg" viewBox="0 0 660 128" role="img" aria-label="Generation speed stays at 12.1 to 12.6 tokens per second for 5 minutes.">
+<g class="ch-ink" filter="url(#chalk)"><path d="M60 10v98h560" /><path class="ch-line" d="M60 34c18-2 30 3 48 1s28-3 46 0 30 2 48-1 30-1 46 1 32 2 48-1 30-2 48 1 30 1 48-1 30-1 46 1 32 2 48-1 30-1 48 1 30 1 66 0"/>
+<path d="M60 108v5M168 108v5M276 108v5M384 108v5M492 108v5M600 108v5"/></g>
+<g class="ch-txt"><text x="52" y="38" text-anchor="end" class="ch-num">12.5</text><text x="52" y="112" text-anchor="end" class="ch-num">0</text>
+<text x="60" y="126" text-anchor="middle" class="ch-small">0</text><text x="600" y="126" text-anchor="middle" class="ch-small">5 min</text></g>
+<g class="ch-hand" filter="url(#chalk-soft)"><text x="250" y="70">steady for 5 min (12.1–12.6)</text></g>
+</svg>
+<p class="ch-foot">12B on the pool (B2): <b>11.2 tok/s</b>, steady 5.5 min <i class="ch-tag">measured</i></p>
+</article>
+<article class="chalk-panel">
+<div class="ch-head"><h2 class="ch-h">network cost</h2><div class="ch-hl"><b class="ch-big ch-acc">0.5–0.9 ms</b><span class="ch-say">round trip</span><i class="ch-tag">measured</i></div></div>
+<div class="ch-row"><div class="ch-stat"><b class="ch-mid">6–9 KB</b><span>per token per link</span><i class="ch-tag">measured</i></div><div class="ch-stat"><span>gigabit Ethernet, all pairs under 1 ms</span></div></div>
+<svg class="ch-svg" viewBox="0 0 660 112" role="img" aria-label="One token's path: M3 to .174, back to M3, to .204, back to M3.">
+<g class="ch-ink" filter="url(#chalk)">
+<use href="#ic-air" x="90" y="38" width="60" height="50"/><use href="#ic-air" x="300" y="38" width="60" height="50"/><use href="#ic-air" x="510" y="38" width="60" height="50"/>
+<path d="M300 46C260 14 200 14 160 44" marker-end="url(#chalk-arrow)"/><path d="M155 74c45 30 95 30 140 0" marker-end="url(#chalk-arrow)"/>
+<path d="M360 46c40-32 100-32 140-2" marker-end="url(#chalk-arrow)"/><path d="M505 74c-45 30-95 30-140 0" marker-end="url(#chalk-arrow)"/></g>
+<g class="ch-txt"><text x="120" y="104" text-anchor="middle" class="ch-num">M5 .174</text><text x="330" y="104" text-anchor="middle" class="ch-num">M3 (main)</text><text x="540" y="104" text-anchor="middle" class="ch-num">M5 .204</text></g>
+<g class="ch-hand" filter="url(#chalk-soft)"><text x="230" y="17" text-anchor="middle">1</text><text x="230" y="111" text-anchor="middle">2</text><text x="430" y="17" text-anchor="middle">3</text><text x="430" y="111" text-anchor="middle">4</text><text x="0" y="22">one token:</text></g>
+</svg>
+<p class="ch-foot">Run-002: a tiny model that fits on one Mac gains nothing from pooling (pool 31–45 vs one Air 33–53 tok/s). Pooling is for models that don't fit. <i class="ch-tag">measured</i></p>
+</article>
+<article class="chalk-panel">
+<div class="ch-head"><h2 class="ch-h">speculative decoding <small>B1s · one M5 Air · 12B</small></h2><div class="ch-hl"><b class="ch-big ch-acc">1.6–1.7×</b><span class="ch-say">faster on rewrite tasks</span><i class="ch-tag">measured</i></div></div>
+<div class="ch-row"><div class="ch-stat"><b class="ch-mid">9 → 14.5</b><span>tok/s</span></div><div class="ch-stat"><b class="ch-mid">7.2 → 12.4</b><span>tok/s</span><i class="ch-tag">measured</i></div><div class="ch-stat"><span>new text: no gain</span><i class="ch-tag">measured</i></div></div>
+<svg class="ch-svg" viewBox="0 0 660 120" role="img" aria-label="A draft guesses several tokens; the big model checks them in one pass and keeps the ones that match.">
+<g class="ch-ink" filter="url(#chalk)">
+<rect x="10" y="20" width="96" height="40" rx="4"/><path d="M110 40h40" marker-end="url(#chalk-arrow)"/>
+<rect x="158" y="24" width="70" height="32"/><rect x="234" y="24" width="70" height="32"/><rect x="310" y="24" width="70" height="32"/><rect x="386" y="24" width="70" height="32"/>
+<rect x="158" y="76" width="298" height="36" rx="4"/><path d="M193 72v-12M269 72v-12M345 72v-12M421 72v-12" marker-end="url(#chalk-arrow)"/></g>
+<g class="ch-txt"><text x="58" y="45" text-anchor="middle">draft</text><text x="58" y="76" text-anchor="middle" class="ch-small">guesses tokens</text>
+<text x="193" y="45" text-anchor="middle">the</text><text x="269" y="45" text-anchor="middle">cat</text><text x="345" y="45" text-anchor="middle">sat</text><text x="421" y="45" text-anchor="middle">up</text>
+<text x="307" y="99" text-anchor="middle">big model checks all 4 in one pass</text></g>
+<g class="ch-hand" filter="url(#chalk-soft)"><text x="185" y="16">✓</text><text x="261" y="16">✓</text><text x="337" y="16">✓</text><text x="413" y="16">✗</text><text x="476" y="50">keep 3,</text><text x="476" y="74">redo 1</text></g>
+</svg>
+</article>
+</div>
+</section>
+<section class="chalk-pane" id="chalk-04" aria-label="04 scale: what it takes to run bigger open models" hidden>
+<div class="ch4-top"><h2 class="ch-h ch-title">what it takes</h2><span class="ch4-sub">machines needed to hold each open model in memory · one row per quality level</span></div>
+<div class="ch4-table" role="table" aria-label="Machines needed per model">
+<div class="ch4-row ch4-headrow" role="row"><span role="columnheader">quality reference</span><span role="columnheader">open model + size</span><span role="columnheader"><svg class="ch-ic1" viewBox="0 0 24 20"><use href="#ic-office"/></svg>old office PCs, no GPU</span><span role="columnheader"><svg class="ch-ic1" viewBox="0 0 24 20"><use href="#ic-air"/></svg>MacBook Airs, 24 GB</span><span role="columnheader"><svg class="ch-ic1" viewBox="0 0 24 20"><use href="#ic-gpu"/></svg>used RTX 3090 PCs</span></div>
+<div class="ch4-row" role="row"><div class="ch4-ref" role="cell"><h3 class="ch-h">Claude 3.5 Sonnet class</h3></div>
+<div class="ch4-model" role="cell"><b>Gemma 4 26B</b><span>Q8 · 25 GiB</span><span>GPQA 82.3 vs 65.0 (reasoning benchmarks)</span></div>
+<div class="ch4-m" role="cell"><div class="ch4-n"><b class="ch-acc">2</b></div><span class="chalk-icons" data-kind="office" data-n="2"></span></div>
+<div class="ch4-m" role="cell"><div class="ch4-n"><b>3</b><i class="ch-tag">measured · this pool</i></div><span class="chalk-icons" data-kind="air" data-n="3"></span></div>
+<div class="ch4-m" role="cell"><div class="ch4-n"><b>2</b></div><span class="chalk-icons" data-kind="gpu" data-n="2"></span></div></div>
+<div class="ch4-row" role="row"><div class="ch4-ref" role="cell"><h3 class="ch-h">Claude Sonnet 4.5 class</h3></div>
+<div class="ch4-model" role="cell"><b>DeepSeek V4 Flash</b><span>284B (13B active) · Q8 · 151 GiB</span><span>SWE-bench Verified 79.0 vs 77.2 (DeepSeek's card / Anthropic's launch number)</span></div>
+<div class="ch4-m" role="cell"><div class="ch4-n"><b class="ch-acc">3</b></div><span class="chalk-icons" data-kind="office" data-n="3"></span></div>
+<div class="ch4-m" role="cell"><div class="ch4-n"><b>10</b></div><span class="chalk-icons" data-kind="air" data-n="10"></span></div>
+<div class="ch4-m" role="cell"><div class="ch4-n"><b>8</b></div><span class="chalk-icons" data-kind="gpu" data-n="8"></span></div></div>
+<div class="ch4-row" role="row"><div class="ch4-ref" role="cell"><h3 class="ch-h">Claude Opus 4.8 class</h3></div>
+<div class="ch4-model" role="cell"><b>GLM-5.3</b><span>753B · Q4 · 435 GiB (Q8 746 GiB)</span><span>zai-org's card vs Opus 4.8: Terminal Bench 2.1 88.2 vs 85.0 · DeepSWE 66.9 vs 58.0 · HLE with tools 62.5 vs 57.9</span><span class="ch4-also">also: DeepSeek V4 Pro-0813, 1.65T, Q8 814 GiB ≈ 51 Airs / 40 × 3090</span></div>
+<div class="ch4-m" role="cell"><div class="ch4-n"><b class="ch-acc">9</b></div><span class="chalk-icons" data-kind="office" data-n="9"></span></div>
+<div class="ch4-m" role="cell"><div class="ch4-n"><b>27</b></div><span class="chalk-icons" data-kind="air" data-n="27"></span></div>
+<div class="ch4-m" role="cell"><div class="ch4-n"><b>22</b></div><span class="chalk-icons" data-kind="gpu" data-n="22"></span></div></div>
+</div>
+<div class="ch4-bottom"><div class="ch4-box"><h3 class="ch-h">what doesn't scale</h3><ul>
+<li>Memory adds up; speed per user doesn't.</li>
+<li>Each machine adds one network hop per token.</li>
+<li>One machine dropping out stops the pool (the coordinator re-plans and recovers).</li>
+<li>A cold 400 GB load takes about an hour over gigabit.</li></ul>
+</div>
+<p class="ch4-note"><i class="ch-tag">benchmarks are the model makers' published numbers</i></p></div>
+</section>
 <form id="command-form" class="command-line"><label for="command"><span>oasis@local</span> ~ $</label><input id="command" aria-label="Preview command. Type help for supported commands." placeholder="help" autocomplete="off" spellcheck="false"><button aria-label="Run preview command" type="submit">↵</button><span id="command-response" role="status">local preview only</span></form>
-<footer><span><i></i> SAMPLE DATA</span><span id="status-memory">64 GiB physical / 35.7 GiB weight capacity</span><span class="status-keys">[1][2] tabs [m] model <span>[j] join</span> [?] help</span></footer>
+<footer><span><i></i> SAMPLE DATA</span><span id="status-memory">64 GiB physical / 35.7 GiB weight capacity</span><span class="status-keys">[1]-[4] tabs [m] model <span>[j] join</span> [?] help</span></footer>
 </div>
 
 
@@ -485,7 +639,6 @@ $('model-tab').addEventListener('click', openModel);
 $('model-open').addEventListener('click', openModel);
 $('model-close').addEventListener('click', () => closeModel(true));
 $('model-done').addEventListener('click', () => closeModel(true));
-$('events-tab').addEventListener('click', () => { document.body.classList.toggle('events-open'); respond('preview session log toggled'); });
 $('help-open').addEventListener('click', () => open('help-dialog'));
 $('research-open').addEventListener('click', () => open('research-dialog'));
 $('join-open').addEventListener('click', openJoin);
@@ -517,6 +670,8 @@ document.addEventListener('keydown', event => {
   if (event.altKey || event.ctrlKey || event.metaKey || event.target.closest('input,select,textarea,button,summary') || document.querySelector('dialog[open]')) return;
   if (event.key === '1') setView('pool');
   else if (event.key === '2') setView('stdb');
+  else if (event.key === '3') setView('measured');
+  else if (event.key === '4') setView('scale');
   else if (event.key === 'w') SPACE.preview(); // replay the starfield intro
   else if (event.key === 'm') { setView('pool'); openModel(); }
   else if (event.key === 'j') openJoin();
@@ -759,8 +914,8 @@ const FLOW = (() => {
   const ctx = cv.getContext('2d');
   let W = 0, H = 0, dpr = 1;
   const resize = () => {
-    // layout size, not getBoundingClientRect: the intro scales the workspace with a transform, and a canvas sized
-    // during the intro stayed ~30x23 px (no visible token flow until a tab switch). ResizeObserver ignores transforms.
+    // clientWidth/Height = layout size, unaffected by the intro's scale(0.03) transform. getBoundingClientRect
+    // measured the shrunken pane (28x23 px canvas), and ResizeObserver never fires on transforms. (fix 09:40)
     dpr = Math.min(2, window.devicePixelRatio || 1);
     W = topo.clientWidth; H = topo.clientHeight;
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
@@ -1421,14 +1576,27 @@ function setView(v) {
   document.body.dataset.view = v;
   $('workspace').hidden = v !== 'pool';
   $('tables-pane').hidden = v !== 'stdb';
-  for (const [id, on] of [['pool-tab', v === 'pool'], ['tables-tab', v === 'stdb']]) { $(id).classList.toggle('active-tab', on); $(id).setAttribute('aria-selected', String(on)); }
+  $('chalk-03').hidden = v !== 'measured';
+  $('chalk-04').hidden = v !== 'scale';
+  for (const [id, on] of [['pool-tab', v === 'pool'], ['tables-tab', v === 'stdb'], ['measured-tab', v === 'measured'], ['scale-tab', v === 'scale']]) { $(id).classList.toggle('active-tab', on); $(id).setAttribute('aria-selected', String(on)); }
   // Aayo 9:00: each intro plays once per page load. The 02 tab gets its short intro the first time it opens; later switches are instant.
   if (v === 'stdb') { tvBuildGrid(); if (!window.__stdbIntroSeen) { window.__stdbIntroSeen = true; SPACE.intro(true); } }
 }
 $('pool-tab').addEventListener('click', () => setView('pool'));
 $('tables-tab').addEventListener('click', () => setView('stdb'));
 $('model-tab').addEventListener('click', () => setView('pool'));
-$('events-tab').addEventListener('click', () => setView('pool'));
+$('measured-tab').addEventListener('click', () => setView('measured'));
+$('scale-tab').addEventListener('click', () => setView('scale'));
+// ---- v5: 03 measured + 04 scale (Aayo 9:30). Static chalk views; the only script is drawing the repeated machine icons
+//      once (the count of icons is the number; more than 12 icons go in rows of 10) and the tab switch in setView. ----
+for (const slot of document.querySelectorAll('.chalk-icons')) {
+  const n = Number(slot.dataset.n), per = n > 12 ? 10 : n, W = 22, H = 19, GX = 3, GY = 5;
+  const rows = Math.ceil(n / per), w = per * (W + GX) - GX, h = rows * (H + GY) - GY;
+  let uses = '';
+  for (let i = 0; i < n; i++) uses += `<use href="#ic-${slot.dataset.kind}" x="${(i % per) * (W + GX)}" y="${Math.floor(i / per) * (H + GY)}" width="${W}" height="${H}"/>`;
+  slot.innerHTML = `<svg width="${w + 4}" height="${h + 4}" viewBox="-2 -2 ${w + 4} ${h + 4}" role="img" aria-label="${n} machines">${uses}</svg>`;
+}
+
 
 // =====================================================================================================================
 // CONCEPT: Starfield intro. One fixed canvas behind the app with 700 stars as 3D points (x, y in [-1, 1]·spread,
@@ -1527,7 +1695,7 @@ const SPACE = (() => {
     layer.style.opacity = op.toFixed(3);
   }
   function cards() {
-    const pane = layer || (tvView === 'stdb' ? $('tables-pane') : $('workspace'));
+    const pane = layer || (({ stdb: $('tables-pane'), measured: $('chalk-03'), scale: $('chalk-04') }[tvView] || $('workspace')));
     const list = pane.id === 'tables-pane' ? [pane.querySelector('.stdb-head'), ...pane.querySelectorAll('.tv-table'), pane.querySelector('.stdb-side')] : [...pane.children];
     return list.filter(Boolean);
   }
@@ -1605,7 +1773,7 @@ const SPACE = (() => {
     if (short) root.classList.remove('intro');
     // the active pane is one layer; scale about the viewport centre
     shell = document.querySelector('.terminal-shell');
-    layer = tvView === 'stdb' ? $('tables-pane') : $('workspace');
+    layer = ({ stdb: $('tables-pane'), measured: $('chalk-03'), scale: $('chalk-04') }[tvView] || $('workspace'));
     const r = layer.getBoundingClientRect();
     layer.style.transformOrigin = `${(cx - r.left).toFixed(1)}px ${(cy - r.top).toFixed(1)}px`;
     layer.classList.add('intro-fly');
@@ -1653,6 +1821,10 @@ if (LIVE && params.has('director')) (async () => {
   ];
   const t0 = performance.now();                                      // wait for the intro to end and the pool to serve
   while (performance.now() - t0 < 15000 && (document.documentElement.classList.contains('intro') || ((tvData && (tvData.cluster_status || [])[0]) || {}).cluster_state !== 'SERVING')) await wait(200);
+  if (document.documentElement.classList.contains('intro')) {      // safety: never record a black page
+    document.documentElement.classList.remove('intro', 'intro-soft');
+    for (const el of document.querySelectorAll('.intro-fly')) { el.classList.remove('intro-fly'); el.style.transform = ''; el.style.opacity = ''; }
+  }
   await wait(2500);                                                  // 2.5 s of the pool before typing starts
   for (const q of QS) { await type($('command'), `ask ${q}`); await wait(250); cmd(`ask ${q}`); await wait(400); await idle(); await wait(900); }
   setView('stdb'); await wait(2600);                                 // short warp into 02
