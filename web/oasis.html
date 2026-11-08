@@ -62,6 +62,7 @@ body[data-type="monaco"]{--mono:Monaco,Menlo,Consolas,monospace}
 .node-model-status{display:block;margin-top:9px;padding-top:7px;border-top:1px solid var(--faint);font-size:8px;color:var(--muted)}.node-model-status strong{font-weight:400;color:var(--secondary)}.node-model-status[data-model-state="loading"] strong{color:var(--warning)}.node-model-status[data-model-state="serving"] strong{color:var(--ink)}.directory-node .directory-model{font-size:7px;color:var(--muted)}.inspect-model-runtime{display:grid;grid-template-columns:1fr auto;gap:7px;margin-top:19px;padding:12px 0;border-top:1px solid var(--faint);border-bottom:1px solid var(--faint);font-size:9px;color:var(--muted)}.inspect-model-runtime strong{font-size:9px;color:var(--secondary)}.inspect-model-runtime[data-model-state="loading"] strong{color:var(--warning)}.inspect-model-runtime small{grid-column:1/-1;font-size:8px;color:var(--muted)}.connections .topology-link{stroke:var(--line);stroke-width:1}.connections .topology-link[data-selected="true"]{stroke:var(--ink);stroke-width:1.5}.allocation-strip button[aria-pressed="true"]{background:var(--raised);border-color:var(--ink);color:var(--ink)}.runtime-cell{font-size:9px}
 @media(min-width:651px) and (max-width:900px){body[data-layout="multiplexer"] .inspect-model-runtime{grid-column:1;grid-row:3;margin-top:12px}body[data-layout="multiplexer"] #inspect-memory{grid-row:1/4}body[data-layout="multiplexer"] #inspect-allocation{grid-row:1/4}}
 
+.flow-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4}
 </style></head>
 <body data-layout="multiplexer" data-palette="graphite" data-type="system" data-model-behavior="inspector"><a href="#workspace" class="skip">Skip to connected nodes</a>
 <div class="terminal-shell">
@@ -96,7 +97,8 @@ join</pre><p class="note">No commands execute on a real machine.</p><button id="
 <dialog id="research-dialog" aria-labelledby="research-title"><div class="dialog-heading"><h2 id="research-title">design / rationale</h2><button data-close="research-dialog" aria-label="Close research notes">×</button></div><p>The first question is “which nodes are connected?” The first screen answers it. Model controls, joining and logs stay available without competing with that view.</p><ul class="research-list"><li><strong>Task-first hierarchy.</strong> Remove competing information; disclose secondary details when needed. <a href="https://www.nngroup.com/articles/aesthetic-minimalist-design/" target="_blank" rel="noreferrer">NN/g ↗</a></li><li><strong>Aligned, compact data.</strong> Keep numeric columns aligned and give selected rows a separate detail view. <a href="https://www.carbondesignsystem.com/building-blocks/core/components/data-table/guidelines" target="_blank" rel="noreferrer">Carbon ↗</a></li><li><strong>Useful terminal conventions.</strong> Concise feedback and discoverable help. Keyboard commands supplement buttons. This web layout is not a literal CLI. <a href="https://clig.dev/" target="_blank" rel="noreferrer">CLI Guidelines ↗</a></li><li><strong>One color model.</strong> All explicit colors use OKLCH. Color-space choice does not automatically ensure contrast. <a href="https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Values/color_value/oklch" target="_blank" rel="noreferrer">MDN ↗</a></li></ul><p>Project constraints: no marketing headline, decorative chart, glass, glow, scanlines, typewriter effects, copied LUMA identity or invented live performance. These are choices for this tool, not a universal formula for avoiding generic design.</p><p class="note">Selected by Joseph: layout C (Multiplexer), Graphite, SF Mono and model controls in the inspector. Connected nodes remain the opening view. Selecting a node returns to its details. This clean preview has no design-choice controls. Live integration is still pending.</p></dialog>
 <script>
 const params = new URLSearchParams(location.search);
-const LIVE = !params.has('fixture');
+const DEMO = params.has('demo');
+const LIVE = !params.has('fixture') && !DEMO;
 // CONCEPT: Small, deterministic design-fixture engine, independent of the DOM.
 // WHY: Keep the first design fast and internally consistent without fabricating live telemetry.
 // DEPENDS ON: Illustrative GiB inputs; follows WP-5's budget concepts, not a production planner.
@@ -326,7 +328,7 @@ function renderInspector() {
   $('inspect-model-runtime').dataset.modelState = runtime.state;
   $('inspect-loaded-model').textContent = runtime.model ? fixtureNames[runtime.model] || runtime.model : '';
   $('inspect-loaded-model').hidden = !runtime.model;
-  $('inspect-hardware').textContent = LIVE && node.hardware ? `${node.main ? 'coordinator + compute' : 'RPC helper'} / ${node.hardware}` : `Apple silicon / ${node.main ? 'coordinator + compute' : 'RPC helper'}`;
+  $('inspect-hardware').textContent = (LIVE || DEMO) && node.hardware ? `${node.main ? 'coordinator + compute' : 'RPC helper'} / ${node.hardware}` : `Apple silicon / ${node.main ? 'coordinator + compute' : 'RPC helper'}`;
   fillDefinition('inspect-memory', [['physical RAM', `${node.ram} GiB`], ['GPU budget', `${gib(node.gpu)} GiB`], ['reserve', `${gib(node.reserve)} GiB`], ['compute buffers', `${gib(node.compute)} GiB`], ['weight capacity', `${gib(Math.max(0, baseBudget(node) - a.kv))} GiB`]]);
   fillDefinition('inspect-allocation', [['layers', a.count ? `${String(a.start).padStart(2, '0')}–${String(a.end).padStart(2, '0')}` : 'none'], ['weights', `${gib(a.weights)} GiB`], ['KV share', `${gib(a.kv)} GiB`], [a.headroom >= 0 ? 'headroom' : 'shortfall', `${gib(Math.abs(a.headroom))} GiB`]]);
   $('allocation-strip').replaceChildren(...snapshot.allocations.filter(part => part.count).map(part => {
@@ -441,6 +443,7 @@ $('command-form').addEventListener('submit', event => {
   else if (command === 'context' && [2048, 4096, 8192, 16384, 32768].includes(Number(argument))) { context = Number(argument); $('context-select').value = argument; render(); respond(`context ${context}`); }
   else if (command === 'join') openJoin();
   else if (command === 'ask' && LIVE) liveAsk(value.slice(3).trim());
+  else if (command === 'demo') runDemo();
   else respond('unknown preview command; type help', true);
   addEvent(`$ ${value}`);
   $('command').value = '';
@@ -487,12 +490,15 @@ function liveRuntime(state, health, isMain, nodeState) {
   return 'not_loaded';
 }
 
+const liveSeq = {};
+let liveLoadingIds = '';
 async function livePoll() {
+  if (typeof demoRunning !== 'undefined' && demoRunning) return;
   let rows, hbs, cs, evs, health;
   try {
     [rows, hbs, cs, evs, health] = await Promise.all([
       liveSql('SELECT * FROM node'),
-      liveSql('SELECT node_id, rpc_state, rpc_port, port_accepting FROM heartbeat'),
+      liveSql('SELECT node_id, seq, rpc_state, rpc_port, port_accepting FROM heartbeat'),
       liveSql('SELECT * FROM cluster_status'),
       liveSql('SELECT seq, at, kind, node_id, message FROM event'),
       liveHealth(),
@@ -537,6 +543,14 @@ async function livePoll() {
   renderEvents();
   render();
   liveDecorate();
+  // Flow: a faint pulse per new heartbeat (agents beat every 1000 ms); weights stream to helpers while loading.
+  for (const h of hbs) {
+    const seq = String(h.seq);
+    if (liveSeq[h.node_id] !== undefined && liveSeq[h.node_id] !== seq) FLOW.beat(h.node_id);
+    liveSeq[h.node_id] = seq;
+  }
+  const loadingIds = LOADING_STATES.includes(liveCluster.state) ? nodes.filter(n => !n.main && n.connection === 'connected').map(n => n.id) : [];
+  if (loadingIds.join() !== liveLoadingIds) { liveLoadingIds = loadingIds.join(); FLOW.loading(loadingIds, loadingIds.length > 0); }
 }
 
 // Page-side lines (answers, TTFT) kept next to the pool's own events.
@@ -581,7 +595,7 @@ async function liveAsk(prompt) {
         if (!line.startsWith('data:') || line.includes('[DONE]')) continue;
         const msg = JSON.parse(line.slice(5));
         const piece = msg.choices && msg.choices[0] && msg.choices[0].delta && msg.choices[0].delta.content;
-        if (piece) { if (ttft === null) ttft = performance.now() - t0; text += piece; respond(text); }
+        if (piece) { if (ttft === null) { ttft = performance.now() - t0; FLOW.prefill(10); } text += piece; respond(text); FLOW.token(); }
         if (msg.timings) timings = msg.timings;
       }
     }
@@ -600,8 +614,340 @@ function startLive() {
   setInterval(livePoll, 1000);
 }
 
+// =====================================================================================================================
+// CONCEPT: Oasis flow layer. Every generated token is a droplet: a small cluster of glyph atoms (0 / 1 / ·, the
+//          terminal's own alphabet) that travels the real per-token path of a llama.cpp RPC pool:
+//          main -> helper 1 -> main -> helper 2 -> main. llama.cpp splits the model by layers in a star through main,
+//          so each token's hidden state visits every machine in RPC order and comes home to main, where the next
+//          token is picked. Other flows: model weights main -> helpers while loading (dim, many), heartbeats
+//          helper -> main every second (faint), a prompt = a burst of droplets (prefill). A faint field of dots drifts
+//          behind everything like water and brightens in a droplet's wake.
+// WHY: Aayo (Sun 12:20am): physics, mostly muted oasis blue on black, never straight lines, like droplets in an ocean.
+//      Motion borrows the LUMA home hero engine (cdxtest public/luma-new/hero): each leg eases with smootherstep plus
+//      a swirl that peaks mid-flight, atoms leave with small staggered delays so a droplet stretches in flight and
+//      regroups at a node, glyphs flicker 0/1 while moving, and every rendered value chases its target with
+//      frame-rate-independent exponential smoothing, so nothing snaps. Path and order are from Preston's run-003
+//      token-flow page (#35). The motion is slowed down and illustrative; the route is real.
+// DEPENDS ON: the design's `nodes`, `snapshot`, `#map-nodes` buttons (same order as `nodes`) and `.topology`.
+// AFFECTS: a canvas over the topology (pointer-events none). Driven by livePoll / liveAsk (live) or runDemo().
+// =====================================================================================================================
+const FLOW = (() => {
+  const topo = document.querySelector('.topology');
+  const cv = document.createElement('canvas');
+  cv.className = 'flow-canvas';
+  cv.setAttribute('aria-hidden', 'true');
+  topo.append(cv);
+  const ctx = cv.getContext('2d');
+  let W = 0, H = 0, dpr = 1;
+  const resize = () => {
+    const r = topo.getBoundingClientRect();
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = r.width; H = r.height;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  };
+  new ResizeObserver(resize).observe(topo);
+  resize();
+
+  const clamp = (v, a = 0, b = 1) => (v < a ? a : v > b ? b : v);
+  const smoother = t => t * t * t * (t * (t * 6 - 15) + 10);
+  const hash = (i, s) => { const x = Math.sin(i * 127.1 + s * 311.7) * 43758.5453; return x - Math.floor(x); };
+
+  // LUMA-family colours, muted for black: oasis blue first, then sea, deep blue, a little lavender.
+  const TOKEN = ['#8fb8ee', '#7fc4d6', '#7f9fe6', '#a8c8f0', '#b3a9ec'];
+  const WEIGHT = ['#8aa0b8', '#7f97b0'];
+  const BEAT = ['#6fb4a8'];
+  const FIELD = '#5f7894';
+  const GLYPHS = ['0', '1', '\u00b7'];
+  // Glyph atlas per colour: three glyphs side by side, drawn once, then stamped with drawImage.
+  const atlases = new Map();
+  const S = 48;
+  function atlas(color) {
+    if (atlases.has(color)) return atlases.get(color);
+    const c = document.createElement('canvas');
+    c.width = S * GLYPHS.length; c.height = S;
+    const x = c.getContext('2d');
+    x.fillStyle = color; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.font = `500 ${S * 0.62}px ui-monospace, "SF Mono", Menlo, monospace`;
+    x.shadowColor = color; x.shadowBlur = 10;
+    GLYPHS.forEach((g, i) => x.fillText(g, i * S + S / 2, S / 2 + 2));
+    atlases.set(color, c);
+    return c;
+  }
+
+  // Soft glow under each glyph so a droplet reads as a body of water, not loose characters.
+  const glows = new Map();
+  function glow(color) {
+    if (glows.has(color)) return glows.get(color);
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const x = c.getContext('2d');
+    const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, color); g.addColorStop(0.35, color + '55'); g.addColorStop(1, color + '00');
+    x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+    glows.set(color, c);
+    return c;
+  }
+
+  function centers() {
+    const base = topo.getBoundingClientRect();
+    const out = {};
+    [...document.querySelectorAll('#map-nodes > .node')].forEach((b, i) => {
+      const n = nodes[i];
+      if (!n) return;
+      const r = b.getBoundingClientRect();
+      out[n.id] = { x: r.left - base.left + r.width / 2, y: r.top - base.top + r.height / 2, rx: r.width / 2, ry: r.height / 2 };
+    });
+    return out;
+  }
+  // A point on a soft ellipse just outside a node card, so atoms gather around the card and the text stays readable.
+  const rim = (c, ang, k = 1) => ({ x: c.x + Math.cos(ang) * (c.rx * 1.42 + 8) * k, y: c.y + Math.sin(ang) * (c.ry * 1.42 + 8) * k });
+
+  const atoms = [];
+  const ripples = [];
+  let uid = 0;
+  // A droplet = `n` atoms sharing one route; each leg = travel (eased + swirl) then a dwell orbiting the node.
+  function droplet(route, dwells, kind, n, onHome) {
+    const id = uid++;
+    const colorSet = kind === 'weight' ? WEIGHT : kind === 'beat' ? BEAT : TOKEN;
+    const travel = kind === 'beat' ? 0.55 : kind === 'weight' ? 0.85 : 1.05;
+    let homed = false;
+    for (let j = 0; j < n; j++) {
+      const s = id * 31 + j;
+      const a = {
+        route, dwells, kind, leg: 0, phase: 'travel', t: -j * 0.05 - hash(s, 3) * 0.06, travel: travel * (0.9 + 0.25 * hash(s, 5)),
+        from: null, ang: hash(s, 7) * Math.PI * 2, spin: hash(s, 9) < 0.5 ? -1 : 1, seed: hash(s, 11) * 100,
+        color: colorSet[Math.floor(hash(s, 13) * colorSet.length)],
+        size: kind === 'token' ? (j === 0 ? 20 : 13 + 4 * hash(s, 17)) : kind === 'prefill' ? 12 : 11,
+        alpha: kind === 'weight' ? 0.65 : kind === 'beat' ? 0.55 : j === 0 ? 1 : 0.8,
+        x: 0, y: 0, rx: NaN, ry: NaN, ra: 0, glyph: 0, done: false,
+        home: j === 0 ? () => { if (!homed) { homed = true; onHome && onHome(); } } : null,
+      };
+      atoms.push(a);
+    }
+  }
+
+  function field(x, y, t) {
+    return 2.4 * Math.sin(x * 0.011 + t * 0.5) * Math.cos(y * 0.013 - t * 0.4) + 1.3 * Math.sin((x + y) * 0.007 + t * 0.6);
+  }
+
+  // Background water: faint dots drifting on the same field; they brighten in a droplet's wake.
+  const dots = Array.from({ length: 140 }, (_, i) => ({ u: hash(i, 1), v: hash(i, 2), sp: 0.004 + 0.006 * hash(i, 3), a: 0, x: 0, y: 0 }));
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    const t = now / 1000;
+    const C = centers();
+    const kp = 1 - Math.exp(-dt * 9), ka = 1 - Math.exp(-dt * 6);
+    ctx.clearRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'lighter';
+
+    for (const a of atoms) {
+      const here = C[a.route[a.leg]];
+      if (!here) { a.done = true; continue; }
+      if (!a.from) { const p = rim(C[a.route[0]] || here, a.ang, 1); a.from = p; a.x = p.x; a.y = p.y; }
+      a.t += dt;
+      let x, y, target = a.alpha;
+      if (a.phase === 'travel') {
+        const dest = rim(here, a.ang + Math.PI * 0.15 * a.spin, 1);
+        const p = clamp(a.t / a.travel), e = smoother(p);
+        const sw = Math.pow(Math.sin(Math.PI * p), 1.4);
+        const ang = field(a.from.x + a.seed, a.from.y, t);
+        const len = Math.hypot(dest.x - a.from.x, dest.y - a.from.y);
+        const amp = (0.12 + 0.1 * hash(a.seed, 2)) * len * sw;
+        x = a.from.x + (dest.x - a.from.x) * e + Math.cos(ang) * amp;
+        y = a.from.y + (dest.y - a.from.y) * e + Math.sin(ang) * amp;
+        if (p > 0 && p < 1) a.glyph = (Math.floor(t * 9 + a.seed) % 2);
+        if (p >= 1) {
+          a.phase = 'dwell'; a.t = 0;
+          if (a.home && a.kind === 'token') ripples.push({ x: here.x, y: here.y, r: 1, a: 0.16, color: a.color });
+        }
+      } else {
+        // Dwell: drift around the card's rim while that machine runs its layers; glyph settles to a dot.
+        a.ang += a.spin * dt * 0.9;
+        const p = rim(here, a.ang + 0.25 * Math.sin(t * 1.3 + a.seed), 1 + 0.06 * Math.sin(t * 2 + a.seed));
+        x = p.x; y = p.y;
+        a.glyph = Math.floor(t * 3 + a.seed) % 2;
+        if (a.t >= (a.dwells[a.leg] || 0.2)) {
+          a.leg++;
+          if (a.leg >= a.route.length) { a.done = true; if (a.home) a.home(); continue; }
+          a.phase = 'travel'; a.t = 0; a.from = { x: a.rx, y: a.ry };
+        }
+      }
+      if (Number.isNaN(a.rx)) { a.rx = x; a.ry = y; }
+      a.rx += (x - a.rx) * kp; a.ry += (y - a.ry) * kp; a.ra += (target - a.ra) * ka;
+      const gs = a.size * 2.4;
+      ctx.globalAlpha = a.ra * 0.32;
+      ctx.drawImage(glow(a.color), a.rx - gs / 2, a.ry - gs / 2, gs, gs);
+      ctx.globalAlpha = a.ra;
+      ctx.drawImage(atlas(a.color), a.glyph * S, 0, S, S, a.rx - a.size / 2, a.ry - a.size / 2, a.size, a.size);
+    }
+    for (let i = atoms.length - 1; i >= 0; i--) if (atoms[i].done) atoms.splice(i, 1);
+
+    // water field
+    const fimg = atlas(FIELD);
+    for (const d of dots) {
+      d.u = (d.u + d.sp * dt) % 1;
+      const px = d.u * W, py = (d.v + 0.02 * Math.sin(t * 0.3 + d.u * 9)) * H;
+      let wake = 0;
+      for (let i = 0; i < atoms.length; i += 2) {
+        const a = atoms[i]; const dx = a.rx - px, dy = a.ry - py, d2 = dx * dx + dy * dy;
+        if (d2 < 2500) wake = Math.max(wake, 1 - d2 / 2500);
+      }
+      const target = 0.1 + 0.4 * wake;
+      d.a += (target - d.a) * (1 - Math.exp(-dt * 5));
+      ctx.globalAlpha = d.a * Math.min(1, Math.min(d.u, 1 - d.u) * 12);
+      ctx.drawImage(fimg, 2 * S, 0, S, S, px - 5, py - 5, 10, 10);
+    }
+
+    for (const r of ripples) {
+      r.r += dt * 0.9; r.a -= dt * 0.55;
+      if (r.a <= 0) continue;
+      const c = C.main || { rx: 60, ry: 45 };
+      ctx.globalAlpha = r.a;
+      ctx.strokeStyle = r.color;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(r.x, r.y, (c.rx + 8) * r.r, (c.ry + 8) * r.r, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    for (let i = ripples.length - 1; i >= 0; i--) if (ripples[i].a <= 0) ripples.splice(i, 1);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // The real per-token route through a star: main -> h1 -> main -> h2 -> ... -> main. Dwell ~ that machine's share
+  // of the layers (snapshot allocations), so a bigger slice holds the droplet longer.
+  function tokenRoute() {
+    const helpers = nodes.filter(n => !n.main && n.connection === 'connected' && n.modelState !== 'not_loaded');
+    const total = snapshot ? snapshot.allocations.reduce((s, x) => s + x.count, 0) : 1;
+    const share = id => {
+      const a = snapshot && snapshot.allocations.find(x => x.node.id === id);
+      return a && total ? a.count / total : 1 / (helpers.length + 1);
+    };
+    const route = ['main'], dwells = [0.15];
+    for (const h of helpers) { route.push(h.id, 'main'); dwells.push(0.2 + share(h.id) * 1.6, 0.08); }
+    dwells[dwells.length - 1] = 0.15 + share('main') * 1.6;
+    return { route, dwells };
+  }
+
+  let loadingTimer = null;
+  return {
+    token(onHome) { const { route, dwells } = tokenRoute(); droplet(route, dwells, 'token', 5 + Math.floor(Math.random() * 3), onHome); },
+    prefill(n = 10) {
+      const { route, dwells } = tokenRoute();
+      for (let i = 0; i < n; i++) setTimeout(() => droplet(route, dwells.map(d => d * 0.5), 'prefill', 3), i * 45);
+    },
+    beat(id) { if (centers()[id]) droplet([id, 'main'], [0, 0.05], 'beat', 1); },
+    loading(ids, on = true) {
+      clearInterval(loadingTimer);
+      loadingTimer = null;
+      if (!on || !ids.length) return;
+      loadingTimer = setInterval(() => { for (const id of ids) droplet(['main', id], [0, 0.1], 'weight', 3); }, 80);
+    },
+    get count() { return atoms.length; },
+  };
+})();
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Run-through (?demo=1, or type `demo`): a scripted walk through what Oasis does on demo day, on sample machines that
+// match the team's real hardware. Simulated: nothing here talks to a pool. Numbers on screen are marked "sim".
+// ---------------------------------------------------------------------------------------------------------------------
+let demoRunning = false;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function demoCaption(text) { respond(text); addEvent(text); }
+async function streamAnswer(text, tps) {
+  const words = text.split(' ');
+  const t0 = performance.now();
+  FLOW.prefill(12);
+  await sleep(900);
+  $('live-ttft').textContent = `${Math.round(performance.now() - t0)} ms`;
+  $('live-speed-note').textContent = 'sim';
+  let home = 0;
+  for (let i = 0; i < words.length; i++) {
+    FLOW.token(() => { home++; respond(words.slice(0, home).join(' ')); });
+    await sleep(1000 / tps);
+  }
+  await sleep(2200);
+  $('live-tps').textContent = `${tps} tok/s`;
+}
+async function runDemo() {
+  if (demoRunning) return;
+  demoRunning = true;
+  document.querySelector('.environment').innerHTML = '<i></i> run-through <span>/</span> simulated';
+  document.querySelector('.path').textContent = '~/oasis/run-through';
+  const beats = setInterval(() => nodes.filter(n => !n.main && n.connection === 'connected').forEach(n => FLOW.beat(n.id)), 1000);
+  const mk = (id, name, hw, ram, gpu, main = false) => ({ id, connection: main ? 'connected' : 'connecting', modelState: 'not_loaded', loadedModel: null, name, hardware: hw, ram, gpu, reserve: 1.5, compute: 0.5, color: colors[nodes.length % colors.length], main });
+  try {
+    for (;;) {
+      models.gemma12 = { name: 'Gemma 4 12B', quant: 'Q4_K_M', layers: 48, weights: 6.6, kvPerToken: 196608 / 1073741824 };
+      models.gemma26 = { name: 'Gemma 4 26B A4B', quant: 'Q8_0', layers: 30, weights: 25.0, kvPerToken: 98304 / 1073741824 };
+      fixtureNames.gemma12 = 'gemma-4-12b'; fixtureNames.gemma26 = 'gemma-4-26b-a4b';
+      nodes.splice(0, nodes.length, mk('main', 'm5-main', 'MacBook Pro M5 / 24 GB / 192.168.8.174', 24, 17.8, true));
+      names.main = 'm5-main';
+      modelKey = 'gemma12'; selected = 'main'; events = []; renderEvents(); render();
+      $('live-ttft').textContent = '\u2013'; $('live-tps').textContent = '\u2013'; $('live-speed-note').textContent = 'not measured';
+      demoCaption('main is up: SpacetimeDB holds the pool state, the coordinator waits for helpers');
+      await sleep(2500);
+
+      nodes.push(mk('m3air', 'm3-air', 'MacBook Air M3 / 16 GB / 192.168.8.113', 16, 11.8)); names.m3air = 'm3-air'; render();
+      demoCaption('discovery: m3-air runs one agent command; it reports its GPU and free memory');
+      await sleep(1400);
+      nodes[1].connection = 'connected'; render();
+      addEvent('node_registered m3-air / 11.8 GiB GPU');
+      await sleep(1800);
+
+      demoCaption('fitting + placement: gemma-4-12b split by layers, main + m3-air; weights stream to the helper');
+      nodes.forEach(n => { n.modelState = 'loading'; n.loadedModel = 'gemma12'; }); render();
+      FLOW.loading(['m3air']);
+      await sleep(3800);
+      FLOW.loading([], false);
+      nodes.forEach(n => { n.modelState = 'serving'; }); render();
+      addEvent('llama_server_ready / LAUNCHING -> SERVING');
+      await sleep(900);
+
+      demoCaption('ask: summarize this NDA clause in one sentence');
+      await sleep(700);
+      await streamAnswer('The clause bars both parties from sharing confidential information for two years unless a court orders it.', 14);
+      await sleep(1500);
+
+      nodes.push(mk('m5air', 'm5-air', 'MacBook Air M5 / 24 GB / 192.168.8.204', 24, 17.8)); names.m5air = 'm5-air'; render();
+      demoCaption('live join: m5-air connects while the pool keeps serving');
+      await sleep(1400);
+      nodes[2].connection = 'connected'; render();
+      addEvent('node_registered m5-air / 17.8 GiB GPU');
+      await sleep(1500);
+
+      demoCaption('the pool now holds gemma-4-26b (25 GiB), more than any one laptop: re-plan across three machines');
+      modelKey = 'gemma26';
+      nodes.forEach(n => { n.modelState = 'loading'; n.loadedModel = 'gemma26'; }); render();
+      FLOW.loading(['m3air', 'm5air']);
+      await sleep(5000);
+      FLOW.loading([], false);
+      nodes.forEach(n => { n.modelState = 'serving'; }); render();
+      addEvent('llama_server_ready / LAUNCHING -> SERVING (3 machines)');
+      await sleep(900);
+
+      demoCaption('ask: what should a clinic check before sharing patient records?');
+      await sleep(700);
+      await streamAnswer('Confirm patient consent, share only the minimum needed, use an encrypted channel, and log who received the records and why.', 9);
+      await sleep(3500);
+      demoCaption('every token visits every machine and comes home to main; the data never leaves the room');
+      await sleep(4000);
+    }
+  } finally {
+    clearInterval(beats);
+    demoRunning = false;
+  }
+}
+
 closeModel(); renderEvents(); render();
 if (LIVE) startLive();
+if (DEMO) runDemo();
 
 </script>
 </body></html>
