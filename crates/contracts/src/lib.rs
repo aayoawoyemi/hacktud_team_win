@@ -36,7 +36,7 @@ pub use v1::*;
 
 /// CONCEPT: pool-wide defaults every crate reads, so agent, coordinator and netcheck can't drift apart.
 /// WHY: Aayo 7:55pm Sat: O-26 timings (heartbeat 1000 ms, node timeout 6000 ms = 6 missed heartbeats, ready
-///      timeout 120 s for a model load over RPC), database name `pool`, netcheck port 50060 (O-17). Config files
+///      timeout 300 s for a model load over RPC; Aayo 9:08pm raised it from 120), database name `pool`, netcheck port 50060 (O-17). Config files
 ///      (O-24) may override the timings; the names and ports are the team's shared plan (docs/network.md).
 /// AFFECTS: agent (heartbeat loop), coordinator (LOST marking, /health wait), netcheck, the publish command.
 pub mod defaults {
@@ -45,7 +45,7 @@ pub mod defaults {
     /// O-26: a node with no heartbeat for this long is LOST (R4.2).
     pub const NODE_TIMEOUT_MS: u64 = 6_000;
     /// O-26: how long the coordinator waits for llama-server's /health to return 200 (R4.7).
-    pub const READY_TIMEOUT_S: u64 = 120;
+    pub const READY_TIMEOUT_S: u64 = 300;
     /// SpacetimeDB database name on main: `spacetime publish -s local -p crates/control pool -y`.
     pub const DB_NAME: &str = "pool";
     /// SpacetimeDB standalone's port on main (`spacetime start` listens on 0.0.0.0:3000).

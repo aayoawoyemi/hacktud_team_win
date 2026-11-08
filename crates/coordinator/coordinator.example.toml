@@ -9,4 +9,4 @@ ctx_size = 4096
 host = "0.0.0.0"
 port = 8080
 log_dir = "/tmp"
-ready_timeout_s = 120
+ready_timeout_s = 300

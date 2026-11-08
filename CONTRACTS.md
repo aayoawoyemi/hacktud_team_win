@@ -143,7 +143,7 @@ Not written yet: the llama-server load-log parser (per-device buffers and layer 
 - **Database name:** `pool` (Aayo, Sat 7:55pm; `contracts::defaults::DB_NAME`). Tests use `pool-smoke` so they never
   touch the real one.
 - **Timings (O-26, Aayo 7:55pm):** heartbeat every 1000 ms; a node is LOST after 6000 ms without one; the coordinator
-  waits up to 120 s for llama-server `/health`. Constants in `contracts::defaults`; TOML config may override.
+  waits up to 300 s for llama-server `/health` (Aayo 9:08pm: Part 2 streams ~15-20 GB to helpers on a cold load). Constants in `contracts::defaults`; TOML config may override.
 - **Publish (main only):** `spacetime publish -s local -p crates/control pool -y`. The publisher's identity
   becomes admin. Always pass `-s local`: the CLI's default server is maincloud (hosted), which D-02 rules out.
 - **Client bindings:** `contracts::control` (generated, committed). Other machines build without the CLI. After any
