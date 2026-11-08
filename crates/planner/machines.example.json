@@ -1,0 +1,11 @@
+[
+  {
+    "name": "example-mac",
+    "memory_pool_id": "example-mac-unified",
+    "unified_memory": true,
+    "free_bytes": 17179869184,
+    "device_limit_bytes": 12884901888,
+    "reserve_bytes": 2147483648,
+    "compute_buffer_bytes": 536870912
+  }
+]
