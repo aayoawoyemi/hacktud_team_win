@@ -6,6 +6,7 @@
 //! DEPENDS ON: a local SpacetimeDB with crates/control published as `pool-smoke`, the publisher token, llama.cpp b8665,
 //!             a small GGUF. Ignored by default (Aries' Windows run has none of these). Run on a Mac:
 //!               spacetime publish -s local -p crates/control pool-smoke -y --delete-data
+//!             (another server or db: set SPACETIME_URI / SPACETIME_DB; the live `pool` db is refused)
 //!               SPACETIME_TOKEN=... LLAMA_BIN_DIR=~/llama-b8665/llama-b8665 MODEL=/path/small.gguf \
 //!                 cargo test -p coordinator --test full_cycle -- --ignored --nocapture
 //! AFFECTS: nothing at runtime.
@@ -22,8 +23,24 @@ use std::process::{Child, Command, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-const URL: &str = "http://127.0.0.1:3000";
-const DB: &str = "pool-smoke";
+/// SpacetimeDB to test against: `SPACETIME_URI` / `SPACETIME_DB` from the environment, else a local scratch db
+/// (`http://127.0.0.1:<contracts::defaults::SPACETIME_PORT>`, `pool-smoke`). Never point this at the live `pool`:
+/// the test publishes nodes, plans and commands into whatever db it is given.
+fn spacetime() -> (String, String) {
+    let uri = std::env::var("SPACETIME_URI").unwrap_or_else(|_| {
+        format!(
+            "http://127.0.0.1:{}",
+            contracts::defaults::SPACETIME_PORT
+        )
+    });
+    let db = std::env::var("SPACETIME_DB").unwrap_or_else(|_| "pool-smoke".into());
+    assert_ne!(
+        db,
+        contracts::defaults::DB_NAME,
+        "full_cycle must not run against the live pool db"
+    );
+    (uri, db)
+}
 
 fn env(k: &str) -> String {
     std::env::var(k).unwrap_or_else(|_| panic!("set {k} (see the header of this file)"))
@@ -40,8 +57,9 @@ impl Agent {
         let bin = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/agent");
         assert!(bin.exists(), "build the agent first: cargo build -p agent");
         let cfg = dir.join(format!("{node_id}.toml"));
+        let (uri, db) = spacetime();
         let toml = format!(
-            "node_id = \"{node_id}\"\nrole = \"helper\"\nspacetime_uri = \"{URL}\"\nspacetime_db = \"{DB}\"\n\
+            "node_id = \"{node_id}\"\nrole = \"helper\"\nspacetime_uri = \"{uri}\"\nspacetime_db = \"{db}\"\n\
              llama_bin_dir = \"{llama_bin_dir}\"\nrpc_bind = \"127.0.0.1\"\nrpc_port = {port}\nrpc_cache = true\n"
         );
         std::fs::write(&cfg, toml).unwrap();
@@ -159,8 +177,8 @@ fn full_cycle_two_helpers_then_join() {
     let log_dir = std::env::temp_dir().join(format!("wp4-full-cycle-{}", std::process::id()));
     std::fs::create_dir_all(&log_dir).unwrap();
     let cfg = Config {
-        spacetime_uri: URL.into(),
-        spacetime_db: DB.into(),
+        spacetime_uri: spacetime().0,
+        spacetime_db: spacetime().1,
         token: Some(env("SPACETIME_TOKEN")),
         llama_server_path: format!("{bin}/llama-server"),
         model_path: env("MODEL"),
