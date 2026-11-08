@@ -84,9 +84,9 @@ trap 'log "interrupted"; stop_all; exit 130' INT TERM
 run_spec() {
   FA=""; EXTRA=""
   case "$1" in
-    B1)  MODE=single; SIZE=12; SCEN=single_fit; NOTE="12B, M3 alone" ;;
-    B1s) MODE=single; SIZE=12; SCEN=single_fit; EXTRA="$SPEC_ARGS"; NOTE="12B, M3 alone, ngram speculative" ;;
-    B2)  MODE=pool;   SIZE=12; SCEN=pool_part1; NOTE="12B, 3-Mac pool" ;;
+    B1)  MODE=single; SIZE=12; SCEN=single_fit; NOTE="12B, $MAIN_NODE alone" ;;
+    B1s) MODE=single; SIZE=12; SCEN=single_fit; EXTRA="$SPEC_ARGS"; NOTE="12B, $MAIN_NODE alone, ngram speculative" ;;
+    B2)  MODE=pool;   SIZE=12; SCEN=pool_part1; NOTE="12B, pool ($HELPER_NODES + $MAIN_NODE)" ;;
     B2s) MODE=pool;   SIZE=12; SCEN=pool_part1; EXTRA="$SPEC_ARGS"; NOTE="12B, pool, ngram speculative" ;;
     B3)  MODE=pool;   SIZE=26; SCEN=pool_part2; NOTE="26B Q8_0, pool" ;;
     B4)  MODE=pool;   SIZE=26; SCEN=pool_part2; FA=on; EXTRA="$KV_ARGS"; NOTE="26B, pool, flash-attn + q8 KV" ;;
