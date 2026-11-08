@@ -66,7 +66,7 @@ body[data-type="monaco"]{--mono:Monaco,Menlo,Consolas,monospace}
 .flow-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4}
 /* CONCEPT: Chat pane (P1, Sun 1:30am). Full width under the topology so the token dots stay visible while answers stream.
    AFFECTS: live mode only; fixture and run-through pages never show it. */
-.chat-pane{grid-column:1/-1;border-top:1px solid var(--line)}#chat-title{font-weight:400}#chat-route{text-transform:none}#chat-log{padding:14px 20px;max-height:280px;overflow:auto;display:flex;flex-direction:column;gap:14px;font-size:11px}#chat-log:empty::before{content:"Type a question below. Every token is computed across the machines shown above.";color:var(--dim);font-size:9px}.chat-msg>small{display:block;font-size:8px;color:var(--muted);margin-bottom:5px}.chat-msg>p{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink);line-height:1.65}.chat-user>p{color:var(--secondary)}.chat-meta{font-size:8px;color:var(--muted);margin-top:6px}.chat-form{display:flex;gap:12px;align-items:center;padding:10px 20px;border-top:1px solid var(--faint)}.chat-form label{font-size:9px;color:var(--accent)}.chat-form input{flex:1;min-width:0;border:1px solid var(--line);background:var(--bg);color:var(--ink);padding:9px 10px;font-size:11px;border-radius:0}
+body.live .fixture-only{display:none!important}.chat-pane{grid-column:1/-1;border-top:1px solid var(--line)}#chat-title{font-weight:400}#chat-route{text-transform:none}#chat-log{padding:14px 20px;max-height:280px;overflow:auto;display:flex;flex-direction:column;gap:14px;font-size:11px}#chat-log:empty::before{content:"Type a question below. Every token is computed across the machines shown above.";color:var(--dim);font-size:9px}.chat-msg>small{display:block;font-size:8px;color:var(--muted);margin-bottom:5px}.chat-msg>p{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink);line-height:1.65}.chat-user>p{color:var(--secondary)}.chat-meta{font-size:8px;color:var(--muted);margin-top:6px}.chat-form{display:flex;gap:12px;align-items:center;padding:10px 20px;border-top:1px solid var(--faint)}.chat-form label{font-size:9px;color:var(--accent)}.chat-form input{flex:1;min-width:0;border:1px solid var(--line);background:var(--bg);color:var(--ink);padding:9px 10px;font-size:11px;border-radius:0}
 </style></head>
 <body data-layout="multiplexer" data-palette="graphite" data-type="system" data-model-behavior="inspector"><a href="#workspace" class="skip">Skip to connected nodes</a>
 <div class="terminal-shell">
@@ -376,6 +376,7 @@ function openModel() {
 }
 function open(id) { if (!$(id).open) $(id).showModal(); }
 function openJoin() {
+  if (LIVE) { respond('to add a machine, start its agent (agent agent.toml); it joins the pool by itself', true); return; }
   if (nodes.length >= 4 && !pending) { respond('design preview limited to 4 nodes', true); return; }
   $('join-form').hidden = !!pending;
   $('join-progress').hidden = !pending;
@@ -401,7 +402,7 @@ $('research-open').addEventListener('click', () => open('research-dialog'));
 $('join-open').addEventListener('click', openJoin);
 $('inspect-join').addEventListener('click', openJoin);
 document.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => $(button.dataset.close).close()));
-$('model-select').addEventListener('change', event => { modelKey = event.target.value; render(); addEvent(`model set to ${fixtureNames[modelKey]}`); });
+$('model-select').addEventListener('change', event => { if (LIVE) { liveRequestModel(event.target.value); return; } modelKey = event.target.value; render(); addEvent(`model set to ${fixtureNames[modelKey]}`); });
 $('context-select').addEventListener('change', event => { context = Number(event.target.value); render(); addEvent(`context set to ${context}`); });
 $('join-form').addEventListener('submit', event => {
   event.preventDefault();
@@ -444,7 +445,9 @@ $('command-form').addEventListener('submit', event => {
   else if (command === 'inspect') {
     const node = nodes.find(node => idFor(node) === argument);
     if (node) select(node.id); else respond('unknown node; use inspect n01', true);
-  } else if (command === 'model' && models[argument]) { modelKey = argument; $('model-select').value = argument; render(); respond(`model ${fixtureNames[argument]}`); }
+  } else if (command === 'model' && LIVE && argument) liveRequestModel(argument);
+  else if (command === 'model' && models[argument]) { modelKey = argument; $('model-select').value = argument; render(); respond(`model ${fixtureNames[argument]}`); }
+  else if (command === 'context' && LIVE) respond('context is fixed by the coordinator (ctx_size in coordinator.toml)', true);
   else if (command === 'context' && [2048, 4096, 8192, 16384, 32768].includes(Number(argument))) { context = Number(argument); $('context-select').value = argument; render(); respond(`context ${context}`); }
   else if (command === 'join') openJoin();
   else if (command === 'ask' && LIVE) liveAsk(value.slice(3).trim());
@@ -517,7 +520,7 @@ async function livePoll() {
   }
   const c = cs[0] || {};
   // #33 (Aayo): never FAILED on screen; an old row reads STOPPED.
-  liveCluster = { state: c.cluster_state === 'FAILED' ? 'STOPPED' : (c.cluster_state || 'EMPTY'), model: c.model_id || '', plan: c.plan_id || '', endpoint: c.endpoint || `${LIVE_LLAMA}/v1` };
+  liveCluster = { state: c.cluster_state === 'FAILED' ? 'STOPPED' : (c.cluster_state || 'EMPTY'), model: c.model_id || '', plan: c.plan_id || '', models: liveModelIds(c.status_json), endpoint: c.endpoint || `${LIVE_LLAMA}/v1` };
   const mainRow = rows.find(r => r.role === 'main');
   const helpers = rows.filter(r => r.role === 'helper').sort((a, b) => a.node_id.localeCompare(b.node_id));
   const toNode = (r, isMain) => {
@@ -575,6 +578,61 @@ function liveDecorate() {
   const connected = nodes.filter(n => n.connection === 'connected').length;
   $('session-count').textContent = liveError ? liveError : `${liveCluster.state.toLowerCase().replace('_', ' ')} / ${connected} connected / ${nodes.length} nodes`;
   if (liveCluster.model) $('dock-model').textContent = liveCluster.model;
+  liveModelControls();
+}
+
+// CONCEPT: switch the pool's model from the dashboard (Preston, Sun 2am). The select lists the ids the coordinator
+//          publishes in cluster_status.status_json.models; picking one calls control's request_model reducer over
+//          SpacetimeDB HTTP (anonymous; the coordinator only honors ids from its own config). The coordinator
+//          re-plans: the old model stops, the new one loads (no answers meanwhile), or the old one comes back if
+//          the load fails. The dock says "switching" until the pool is SERVING again.
+// DEPENDS ON: request_model reducer + model_request table (crates/control), coordinator [models] config.
+// AFFECTS: #model-select options, #dock-model text, the session log.
+let liveSwitch = null;                     // { to, at, sawLoad } while a requested switch is in flight
+function liveModelIds(json) {
+  try { return (JSON.parse(json || '{}').models || []).filter(m => typeof m === 'string'); } catch { return []; }
+}
+function liveModelControls() {
+  const sel = $('model-select');
+  const ids = liveCluster.models.length ? liveCluster.models : (liveCluster.model ? [liveCluster.model] : []);
+  if (sel.dataset.ids !== ids.join('|')) {
+    sel.replaceChildren(...ids.map(id => { const o = element('option', '', id); o.value = id; return o; }));
+    sel.dataset.ids = ids.join('|');
+  }
+  if (liveSwitch) {
+    if (LOADING_STATES.includes(liveCluster.state) || liveCluster.state === 'STOPPED') liveSwitch.sawLoad = true;
+    const settled = liveCluster.state === 'SERVING' && (liveCluster.model === liveSwitch.to || liveSwitch.sawLoad);
+    // Aries #51 review item 10: if the pool never leaves SERVING (coordinator down, or it ignored the id), stop
+    // waiting after 30 s instead of keeping the select disabled.
+    const ignored = !liveSwitch.sawLoad && liveCluster.state === 'SERVING' && Date.now() - liveSwitch.at > 30e3;
+    if (settled || ignored || Date.now() - liveSwitch.at > 15 * 60e3) {
+      liveNote(liveCluster.model === liveSwitch.to ? `now serving ${liveCluster.model}`
+        : ignored ? `switch to ${liveSwitch.to} not picked up by the coordinator; still serving ${liveCluster.model}`
+        : `switch to ${liveSwitch.to} failed; still serving ${liveCluster.model} (see events)`);
+      liveSwitch = null;
+    }
+  }
+  sel.disabled = !!liveSwitch || ids.length < 2;
+  if (!liveSwitch && liveCluster.model) sel.value = liveCluster.model;
+  if (liveSwitch) $('dock-model').textContent = `switching to ${liveSwitch.to} (${liveCluster.state.toLowerCase().replace('_', ' ')})`;
+}
+async function liveRequestModel(id) {
+  if (!id || id === liveCluster.model || liveSwitch) return;
+  if (!liveCluster.models.includes(id)) { respond(`unknown model ${id}; pick one of: ${liveCluster.models.join(', ')}`, true); return; }
+  try {
+    const r = await fetch(`${LIVE_STDB}/v1/database/${LIVE_DB}/call/request_model`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify([id]), signal: AbortSignal.timeout(5000),
+    });
+    // The reducer's own message on refusal, e.g. the one-switch-per-30-s cooldown (#51 review item 3).
+    if (!r.ok) throw new Error((await r.text()).replace(/^E_CONFIG: /, '') || `SpacetimeDB ${r.status}`);
+    liveSwitch = { to: id, at: Date.now(), sawLoad: false };
+    liveNote(`switching to ${id}: the pool reloads (no answers until it is serving again)`);
+    respond(`switching to ${id}…`);
+    liveModelControls();
+  } catch (e) {
+    respond(`switch failed: ${e.message}`, true);
+    $('model-select').value = liveCluster.model;
+  }
 }
 
 // CONCEPT: Chat with the pool. `ask <prompt>`, ?ask= and the chat pane all land here: the conversation so far goes to
@@ -604,7 +662,7 @@ async function planMachines() {
 async function liveAsk(prompt) {
   if (!prompt) { respond('usage: ask <question>', true); return; }
   if (chatBusy) { respond('one answer at a time', true); return; }
-  chatBusy = true; $('chat-send').disabled = true;
+  chatBusy = true; $('chat-send').disabled = true; $('chat-clear').disabled = true;
   chatHistory.push({ role: 'user', content: prompt });
   chatAdd('chat-user', 'you', prompt);
   const reply = chatAdd('chat-bot', `pool / ${liveCluster.model || 'model'}`, '…');
@@ -658,7 +716,7 @@ async function liveAsk(prompt) {
     out.textContent = `no answer: ${e.message} (is the pool serving?)`;
     respond(`no answer: ${e.message} (is the pool serving?)`, true);
   } finally {
-    chatBusy = false; $('chat-send').disabled = false;
+    chatBusy = false; $('chat-send').disabled = false; $('chat-clear').disabled = false;
   }
 }
 $('chat-form').addEventListener('submit', event => {
@@ -672,6 +730,19 @@ $('chat-clear').addEventListener('click', () => { chatHistory.length = 0; $('cha
 
 function startLive() {
   $('chat-pane').hidden = false;
+  // P4 07:51Z: in live mode every visible control must act on the real pool, so sample-data estimates and the mock
+  // join flow are hidden (fixture/demo modes keep them), and the captions stop saying "preview".
+  document.body.classList.add('live');
+  for (const el of [$('join-open'), $('inspect-join'), $('dock-fit').parentElement, document.querySelector('.dock-budget'),
+    $('dock-context').parentElement, $('status-memory'), $('fit-explanation'), $('fit-calculation').closest('details'),
+    $('context-select').closest('.model-field'), document.querySelector('.inspect-section'), $('allocation-strip'),
+    $('inspect-allocation'), $('inspect-explanation').closest('details'), $('research-open')]) if (el) el.classList.add('fixture-only');
+  document.querySelector('footer > span:first-child').replaceChildren(element('i'), document.createTextNode(' LIVE POOL'));
+  document.querySelector('.session-pane .pane-caption span').textContent = 'pool events';
+  document.querySelectorAll('#help-dialog .note')[0].textContent = 'The prompt supports these commands (live pool):';
+  document.querySelector('#help-dialog .note:last-of-type').textContent = 'Live: ask / chat go to the pool, `model <id>` or the model panel switches the pool, and a machine joins when its agent starts.';
+  document.querySelector('#model-controls .note').textContent = 'Models the coordinator can serve. Switching reloads the pool: the old model stops and the new one loads (about 35 s for the 12B, minutes for the 26B), with no answers meanwhile.';
+  respond('live');
   livePoll().then(() => { if (params.get('ask')) liveAsk(params.get('ask')); });
   setInterval(livePoll, 1000);
 }

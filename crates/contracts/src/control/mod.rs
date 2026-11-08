@@ -21,11 +21,14 @@ pub mod heartbeat_info_type;
 pub mod heartbeat_row_type;
 pub mod heartbeat_table;
 pub mod issue_command_reducer;
+pub mod model_request_row_type;
+pub mod model_request_table;
 pub mod node_info_type;
 pub mod node_row_type;
 pub mod node_table;
 pub mod record_event_reducer;
 pub mod register_node_reducer;
+pub mod request_model_reducer;
 pub mod send_heartbeat_reducer;
 pub mod set_cluster_status_reducer;
 pub mod set_split_plan_reducer;
@@ -48,11 +51,14 @@ pub use heartbeat_info_type::HeartbeatInfo;
 pub use heartbeat_row_type::HeartbeatRow;
 pub use heartbeat_table::*;
 pub use issue_command_reducer::issue_command;
+pub use model_request_row_type::ModelRequestRow;
+pub use model_request_table::*;
 pub use node_info_type::NodeInfo;
 pub use node_row_type::NodeRow;
 pub use node_table::*;
 pub use record_event_reducer::record_event;
 pub use register_node_reducer::register_node;
+pub use request_model_reducer::request_model;
 pub use send_heartbeat_reducer::send_heartbeat;
 pub use set_cluster_status_reducer::set_cluster_status;
 pub use set_split_plan_reducer::set_split_plan;
@@ -97,6 +103,9 @@ pub enum Reducer {
         info: NodeInfo,
         caps_json: String,
     },
+    RequestModel {
+        model_id: String,
+    },
     SendHeartbeat {
         hb: HeartbeatInfo,
         heartbeat_json: String,
@@ -135,6 +144,7 @@ impl __sdk::Reducer for Reducer {
             Reducer::IssueCommand { .. } => "issue_command",
             Reducer::RecordEvent { .. } => "record_event",
             Reducer::RegisterNode { .. } => "register_node",
+            Reducer::RequestModel { .. } => "request_model",
             Reducer::SendHeartbeat { .. } => "send_heartbeat",
             Reducer::SetClusterStatus { .. } => "set_cluster_status",
             Reducer::SetSplitPlan { .. } => "set_split_plan",
@@ -196,6 +206,11 @@ impl __sdk::Reducer for Reducer {
                     caps_json: caps_json.clone(),
                 })
             }
+            Reducer::RequestModel { model_id } => {
+                __sats::bsatn::to_vec(&request_model_reducer::RequestModelArgs {
+                    model_id: model_id.clone(),
+                })
+            }
             Reducer::SendHeartbeat { hb, heartbeat_json } => {
                 __sats::bsatn::to_vec(&send_heartbeat_reducer::SendHeartbeatArgs {
                     hb: hb.clone(),
@@ -249,6 +264,7 @@ pub struct DbUpdate {
     command: __sdk::TableUpdate<CommandRow>,
     event: __sdk::TableUpdate<EventRow>,
     heartbeat: __sdk::TableUpdate<HeartbeatRow>,
+    model_request: __sdk::TableUpdate<ModelRequestRow>,
     node: __sdk::TableUpdate<NodeRow>,
     split_plan: __sdk::TableUpdate<SplitPlanRow>,
 }
@@ -271,6 +287,9 @@ impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
                 "heartbeat" => db_update
                     .heartbeat
                     .append(heartbeat_table::parse_table_update(table_update)?),
+                "model_request" => db_update
+                    .model_request
+                    .append(model_request_table::parse_table_update(table_update)?),
                 "node" => db_update
                     .node
                     .append(node_table::parse_table_update(table_update)?),
@@ -315,6 +334,9 @@ impl __sdk::DbUpdate for DbUpdate {
         diff.heartbeat = cache
             .apply_diff_to_table::<HeartbeatRow>("heartbeat", &self.heartbeat)
             .with_updates_by_pk(|row| &row.node_id);
+        diff.model_request = cache
+            .apply_diff_to_table::<ModelRequestRow>("model_request", &self.model_request)
+            .with_updates_by_pk(|row| &row.id);
         diff.node = cache
             .apply_diff_to_table::<NodeRow>("node", &self.node)
             .with_updates_by_pk(|row| &row.node_id);
@@ -339,6 +361,9 @@ impl __sdk::DbUpdate for DbUpdate {
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 "heartbeat" => db_update
                     .heartbeat
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                "model_request" => db_update
+                    .model_request
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 "node" => db_update
                     .node
@@ -371,6 +396,9 @@ impl __sdk::DbUpdate for DbUpdate {
                 "heartbeat" => db_update
                     .heartbeat
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                "model_request" => db_update
+                    .model_request
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
                 "node" => db_update
                     .node
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
@@ -396,6 +424,7 @@ pub struct AppliedDiff<'r> {
     command: __sdk::TableAppliedDiff<'r, CommandRow>,
     event: __sdk::TableAppliedDiff<'r, EventRow>,
     heartbeat: __sdk::TableAppliedDiff<'r, HeartbeatRow>,
+    model_request: __sdk::TableAppliedDiff<'r, ModelRequestRow>,
     node: __sdk::TableAppliedDiff<'r, NodeRow>,
     split_plan: __sdk::TableAppliedDiff<'r, SplitPlanRow>,
     __unused: std::marker::PhantomData<&'r ()>,
@@ -419,6 +448,11 @@ impl<'r> __sdk::AppliedDiff<'r> for AppliedDiff<'r> {
         callbacks.invoke_table_row_callbacks::<CommandRow>("command", &self.command, event);
         callbacks.invoke_table_row_callbacks::<EventRow>("event", &self.event, event);
         callbacks.invoke_table_row_callbacks::<HeartbeatRow>("heartbeat", &self.heartbeat, event);
+        callbacks.invoke_table_row_callbacks::<ModelRequestRow>(
+            "model_request",
+            &self.model_request,
+            event,
+        );
         callbacks.invoke_table_row_callbacks::<NodeRow>("node", &self.node, event);
         callbacks.invoke_table_row_callbacks::<SplitPlanRow>("split_plan", &self.split_plan, event);
     }
@@ -1085,6 +1119,7 @@ impl __sdk::SpacetimeModule for RemoteModule {
         command_table::register_table(client_cache);
         event_table::register_table(client_cache);
         heartbeat_table::register_table(client_cache);
+        model_request_table::register_table(client_cache);
         node_table::register_table(client_cache);
         split_plan_table::register_table(client_cache);
     }
@@ -1093,6 +1128,7 @@ impl __sdk::SpacetimeModule for RemoteModule {
         "command",
         "event",
         "heartbeat",
+        "model_request",
         "node",
         "split_plan",
     ];

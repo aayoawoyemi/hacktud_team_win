@@ -80,7 +80,7 @@ a protobuf round trip.
 | Rust enum | Values (JSON) | PRD |
 |---|---|---|
 | `ErrorCode` | `E_CONFIG`, `E_TRANSPORT`, `E_NODE_UNREACHABLE`, `E_RPC_SERVER_START`, `E_PORT_IN_USE`, `E_RPC_UNREACHABLE`, `E_VERSION_MISMATCH`, `E_MODEL_NOT_FOUND`, `E_GGUF_PARSE`, `E_MODEL_DOES_NOT_FIT`, `E_LAUNCH_FAILED`, `E_NOT_READY_TIMEOUT`, `E_PLACEMENT_MISMATCH`, `E_REQUEST_FAILED`, `E_INTERNAL` | §6.11 |
-| `EventKind` | `node_registered`, `node_capabilities_changed`, `node_lost`, `node_recovered`, `version_mismatch`, `rpc_server_started`, `rpc_server_exited`, `plan_created`, `plan_rejected`, `launch_started`, `llama_server_ready`, `llama_server_exited`, `placement_mismatch`, `request_failed`, `recovery_started`, `recovery_succeeded`, `recovery_failed`, `netcheck_result`, `bench_completed`, `launch_failed` | §6.10 (+ `launch_failed`, Aayo 11:20pm: a failed bring-up is logged here and the cluster goes to STOPPED, never FAILED on screen) |
+| `EventKind` | `node_registered`, `node_capabilities_changed`, `node_lost`, `node_recovered`, `version_mismatch`, `rpc_server_started`, `rpc_server_exited`, `plan_created`, `plan_rejected`, `launch_started`, `llama_server_ready`, `llama_server_exited`, `placement_mismatch`, `request_failed`, `recovery_started`, `recovery_succeeded`, `recovery_failed`, `netcheck_result`, `bench_completed`, `launch_failed`, `model_requested` | §6.10 (+ `launch_failed`, Aayo 11:20pm: a failed bring-up is logged here and the cluster goes to STOPPED, never FAILED on screen) |
 | `RpcServerState` | `not_started`, `starting`, `running`, `exited`, `failed` | §6.2 |
 | `RelaySource` | `debug_log` (6A), `proxy` (6B); `null` when no relay telemetry | §6.2, O-08 |
 | `SplitStrategy` | `llama_default`, `proportional_usable`, `fastest_first`, `min_machines` (which one is used: O-07) | §6.5 |
@@ -114,6 +114,8 @@ In Rust: `Command.args: Option<command::Args>` and `CommandResult.data: Option<c
 - `BenchResult.server_timings`: `ServerTimings`, the fields of llama-server's `timings` object (WP-8).
 - `Event.data`: string-to-string map; numbers go in as text (WP-4, WP-9).
 - `LaunchSpec.speculative`: `SpeculativeSpec`, one field per flag in the §6.6 table (WP-S1).
+- `cluster_status.status_json` (written by the coordinator): `{"models": [<switchable model ids>]}` so the dashboard
+  can list them (P1, Sun 2am). More §6.7 fields may be added later.
 
 ### llama.cpp output parsers (`contracts::parsers`)
 
@@ -168,6 +170,7 @@ All tables are public except `admin`.
 | `event` (`EventRow`) | `seq` (auto) | §6.10 history, append-only: at, kind, node_id, plan_id, message, data_json | the reducers themselves, and record_event |
 | `split_plan` (`SplitPlanRow`) | `plan_id` | §6.5: model_id, strategy, fits, created_at, `plan_json` | set_split_plan |
 | `cluster_status` (`ClusterStatusRow`) | `id` = 0 (one row) | §5.6 `cluster_state` (starts EMPTY), plan_id, model_id, endpoint, updated_at, `status_json` (§6.7) | init, set_cluster_status, disconnect (SERVING to DEGRADED) |
+| `model_request` (`ModelRequestRow`) | `id` = 0 (one row) | The model the operator wants served: model_id, requested_at. The coordinator re-plans to it if the id is in its coordinator.toml `[models]` (P1, Sun 2am) | request_model |
 | `admin` (private) | `identity` | Identities allowed to call the coordinator reducers | init (publisher), add_admin |
 
 ### Reducers
@@ -183,6 +186,7 @@ All tables are public except `admin`.
 | `issue_command` | coordinator (admin) | `node_id, kind, args_json` | Inserts a pending command for an online node. The kind must be one of the 5 kinds in §6.3. |
 | `set_split_plan` | coordinator (admin) | `plan_id, model_id, strategy, fits, plan_json` | Upserts the plan and logs `plan_created` or `plan_rejected`. Doesn't change the cluster state. |
 | `set_cluster_status` | coordinator (admin) | `cluster_state, plan_id, model_id, endpoint, active_node_ids, status_json` | Allows only §5.6 transitions; any other fails with `E_INTERNAL: illegal cluster transition`. Entering SERVING moves the nodes in `active_node_ids` from READY to ACTIVE. Entering STOPPED or FAILED moves ACTIVE nodes back to READY. Logs `launch_started`, `llama_server_ready`, `recovery_started`, `recovery_succeeded` and `recovery_failed`. |
+| `request_model` | anyone (the dashboard, anonymous over HTTP) | `model_id` | Upserts `model_request` row 0 and logs `model_requested`. Id must be 1-128 chars of `[A-Za-z0-9._-]`. The coordinator ignores ids not in its own config, so a caller can't point it at another file. |
 | `add_admin` | admin | `identity` | Authorizes another identity (the coordinator's own SDK identity), so no token gets copied around. |
 | `init` (lifecycle) | server | none | Makes the publisher admin and creates `cluster_status` row 0 in state EMPTY. |
 | `client_connected` (lifecycle) | server | none | Sets `online = true` for a known agent. |

@@ -671,4 +671,5 @@ enum EventKind {
   EVENT_KIND_NETCHECK_RESULT = 18;
   EVENT_KIND_BENCH_COMPLETED = 19;
   EVENT_KIND_LAUNCH_FAILED = 20;      // added 11:20pm Sat: bring-up didn't reach SERVING; cluster goes to STOPPED
+  EVENT_KIND_MODEL_REQUESTED = 21;    // added Sun 2am (P1): dashboard asked for another model; message = model id
 }

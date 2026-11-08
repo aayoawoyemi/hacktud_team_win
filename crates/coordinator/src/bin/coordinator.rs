@@ -59,7 +59,7 @@ fn run() -> Result<(), String> {
             }
         } else {
             let ids: Vec<String> = c.helpers().into_iter().map(|n| n.node_id).collect();
-            if ids.len() >= min && last_try.as_ref() != Some(&ids) {
+            if ids.len() >= min && (last_try.as_ref() != Some(&ids) || c.model_request_pending()) {
                 last_try = Some(ids);
                 match c.bring_up() {
                     Ok(()) => eprintln!("SERVING on {:?}: {:?}", c.cfg.port, c.active()),

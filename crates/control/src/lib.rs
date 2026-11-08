@@ -64,6 +64,8 @@ pub const EVENT_KINDS: &[&str] = &[
     // Added (Aayo 11:20pm Sat): a bring-up that didn't reach SERVING. The cluster goes to STOPPED, not FAILED, so
     // nothing on screen shows a failure; the reason lives here in the event log.
     "launch_failed",
+    // Added (P1, Sun 2am): the dashboard asked for a different model (message = model id). The coordinator acts on it.
+    "model_requested",
 ];
 /// §6.2 rpc_server.state.
 pub const RPC_STATES: &[&str] = &["not_started", "starting", "running", "exited", "failed"];
@@ -297,6 +299,17 @@ pub struct ClusterStatusRow {
     pub updated_at: Timestamp,
     /// Full §6.7 ClusterStatus as contracts JSON ("" until the coordinator writes one).
     pub status_json: String,
+}
+
+/// CONCEPT: the model the operator wants the pool to serve (one row, id = 0). The dashboard writes it with
+///          `request_model`; the coordinator re-plans to that model if it is in its own coordinator.toml [models].
+/// WHY: Preston (Sun 2am): switch the active model between our three from the dashboard.
+#[table(accessor = model_request, public)]
+pub struct ModelRequestRow {
+    #[primary_key]
+    pub id: u8,
+    pub model_id: String,
+    pub requested_at: Timestamp,
 }
 
 // =================================================================================================
@@ -748,6 +761,50 @@ pub fn record_event(
     Ok(())
 }
 
+/// CONCEPT: ask the pool to serve another model. Anyone may call it (the dashboard calls it anonymously over the
+///          SpacetimeDB HTTP API): on our private router (R-09) the only effect is a re-plan, and the coordinator
+///          ignores ids that aren't in its own config, so a caller can't point it at an arbitrary file.
+/// Minimum gap between two accepted `request_model` calls (Aries #51 review: ~30 s).
+pub const MODEL_REQUEST_COOLDOWN_S: i64 = 30;
+
+#[reducer]
+pub fn request_model(ctx: &ReducerContext, model_id: String) -> Result<(), String> {
+    let model_id = model_id.trim().to_string();
+    if model_id.is_empty()
+        || model_id.len() > 128
+        || !model_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+    {
+        return Err("E_CONFIG: model id must be 1-128 chars of [A-Za-z0-9._-]".into());
+    }
+    // Aries #51 review item 3: each switch reloads the pool (minutes for the 26B) and logs an event, so one looping
+    // client could keep the pool down and grow the event table. One request per cooldown, for everyone.
+    let prev = ctx.db.model_request().id().find(0);
+    if let Some(p) = &prev {
+        let waited_us =
+            ctx.timestamp.to_micros_since_unix_epoch() - p.requested_at.to_micros_since_unix_epoch();
+        if waited_us < MODEL_REQUEST_COOLDOWN_S * 1_000_000 {
+            return Err(format!(
+                "E_CONFIG: one model switch per {MODEL_REQUEST_COOLDOWN_S} s; try again in {} s",
+                MODEL_REQUEST_COOLDOWN_S - waited_us / 1_000_000
+            ));
+        }
+    }
+    let row = ModelRequestRow {
+        id: 0,
+        model_id: model_id.clone(),
+        requested_at: ctx.timestamp,
+    };
+    if prev.is_some() {
+        ctx.db.model_request().id().update(row);
+    } else {
+        ctx.db.model_request().insert(row);
+    }
+    log_event(ctx, "model_requested", "", "", model_id);
+    Ok(())
+}
+
 // =================================================================================================
 // Coordinator reducers (WP-4; admin only)
 // =================================================================================================
@@ -989,8 +1046,8 @@ mod tests {
         }
         assert_eq!(
             EVENT_KINDS.len(),
-            20,
-            "§6.10 lists 19 kinds, plus launch_failed (Aayo 11:20pm)"
+            21,
+            "§6.10 lists 19 kinds, plus launch_failed (Aayo 11:20pm) and model_requested (Sun 2am)"
         );
     }
 }
