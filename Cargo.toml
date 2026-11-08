@@ -13,7 +13,8 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/contracts",   # WP-2: shared types (.proto), llama.cpp output parsers
+    "crates/contracts",   # WP-2: shared §6 types, llama.cpp output parsers, generated SpacetimeDB client bindings
+    "crates/control",     # WP-2: the SpacetimeDB module (control-plane tables + reducers, D-13), built for wasm32
     "crates/agent",       # WP-3: node agent, supervises rpc-server
     "crates/coordinator", # WP-4 (+ WP-7 status, WP-9 recovery modules)
     "crates/planner",     # WP-5: GGUF reader + fit calculator (PLACEHOLDER until WP-5 moves in)
@@ -23,29 +24,34 @@ members = [
 ]
 
 # CONCEPT: package metadata every member inherits with `version.workspace = true` etc.
-# WHY: one place to bump the version / edition. edition 2024 needs rustc >= 1.85; the pin is 1.93.1.
+# WHY: one place to bump the version / edition. edition 2024 needs rustc >= 1.85; SpacetimeDB 2.14 needs
+#      >= 1.97; the pin (rust-toolchain.toml) is 1.99.1.
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.93"
+rust-version = "1.97"
 publish = false
 # No `license` key on purpose: the project licence is not decided (O-18 names the project first).
 
 # CONCEPT: the shared dependency catalog. Versions are chosen here once; member crates opt in.
-# WHY: tonic, prost and protox must agree on one prost version (0.14.x) or the generated code won't compile.
-#      tonic 0.14 split prost support into tonic-prost (runtime) and tonic-prost-build (codegen).
-# AFFECTS: crates/contracts today; agent and coordinator will use tonic + tokio when WP-3/WP-4 start.
-# Rejected: tonic TLS features (pull in rustls/ring or OpenSSL). R12.5 says no OpenSSL; the control plane
-#           runs on a private LAN for the demo (D-02), so plaintext gRPC is the assumption.
+# WHY (D-13, 6:10pm): SpacetimeDB replaces gRPC as the control plane, so tonic / tonic-prost are gone.
+#      prost + protox stay only as codegen for the §6 serde types (the .proto is the type schema, not an RPC
+#      definition; Aries correction on #11, 6:03pm). protox compiles it in pure Rust, so no protoc anywhere.
+#      SpacetimeDB: the module crate (`spacetimedb`), the client SDK (`spacetimedb-sdk`) and the `spacetime`
+#      CLI/server on main MUST be the same exact version: generated bindings and the server's wire format are
+#      tied to it. Newest release at 6:16pm Nov 7: 2.14.1 (Aayo 6:05pm: newest SpacetimeDB).
+# AFFECTS: crates/contracts (prost, protox, spacetimedb-sdk), crates/control (spacetimedb), and later the agent
+#          and coordinator (spacetimedb-sdk through contracts). spacetimedb-sdk uses native-tls: the OS TLS stack on
+#          Windows and macOS (no OpenSSL there, R12.5); Linux would need OpenSSL.
 [workspace.dependencies]
 contracts = { path = "crates/contracts" }
-tonic = { version = "0.14.9", default-features = false, features = ["transport", "codegen", "router"] }
-tonic-prost = "0.14.9"
-tonic-prost-build = "0.14.9"
 prost = "0.14.4"
 prost-build = "0.14.4"
 prost-types = "0.14.4"
 protox = "0.10.0"
+spacetimedb = "=2.14.1"
+spacetimedb-sdk = "=2.14.1"
+log = "0.4"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 thiserror = "2.0.17"

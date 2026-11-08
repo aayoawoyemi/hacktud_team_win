@@ -1,7 +1,8 @@
-//! CONCEPT: compiles proto/contracts.proto into Rust (prost messages + tonic services) at build time, and
-//!          attaches serde attributes so every message also has the §6 JSON form.
-//! WHY: O-03: gRPC with tonic, compiled with protox so no machine needs `protoc` installed (R12.5).
-//!      protox parses the .proto in pure Rust and hands a FileDescriptorSet to tonic-prost-build.
+//! CONCEPT: compiles proto/contracts.proto into Rust structs (prost messages) at build time, and attaches serde
+//!          attributes so every message also has the §6 JSON form.
+//! WHY: the .proto is the single schema of the §6 types. D-13 removed gRPC, so there is no service codegen
+//!      (tonic is gone); prost-build only generates the structs. protox parses the .proto in pure Rust, so no
+//!      machine needs `protoc` installed (R12.5).
 //! DEPENDS ON: proto/contracts.proto; src/json.rs (the serde helper modules the attributes point at).
 //! AFFECTS: the generated module `contracts::v1` (OUT_DIR/contracts.v1.rs). Any change to a field's
 //!          serde behaviour happens here.
@@ -45,11 +46,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fds: FileDescriptorSet = protox::compile([PROTO], ["proto"])?;
 
     // 2. Configure code generation.
-    let mut builder = tonic_prost_build::configure()
-        .build_client(true)
-        .build_server(true)
+    let mut builder = prost_build::Config::new();
+    builder
         // BTreeMap instead of HashMap: deterministic key order in JSON output (stable fixtures and diffs).
-        .btree_map(".")
+        .btree_map(["."])
         // Every message: serde derives, and `default` so missing JSON fields read as their default
         // (proto3 semantics; also how "readers ignore unknown fields" pairs with "fields are only added").
         .message_attribute(
@@ -58,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
     for path in NULLABLE_COLLECTIONS {
-        builder = builder.field_attribute(
+        builder.field_attribute(
             format!(".{PACKAGE}.{path}"),
             "#[serde(with = \"crate::json::null_as_empty\")]",
         );
@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("protox returned contracts.proto");
 
     for (path, content) in ONEOFS {
-        builder = builder
+        builder
             .enum_attribute(
                 format!(".{PACKAGE}.{path}"),
                 format!(
@@ -94,7 +94,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         collect_enum_fields(msg, PACKAGE, &mut enum_fields);
     }
     for (path, attr) in enum_fields {
-        builder = builder.field_attribute(path, attr);
+        builder.field_attribute(path, attr);
     }
 
     // 4. Generate. Output: OUT_DIR/contracts.v1.rs, included by src/lib.rs.

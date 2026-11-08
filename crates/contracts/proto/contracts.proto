@@ -1,10 +1,10 @@
-// CONCEPT: the wire contract between every part of the system. Each message here is one PRD §6 shape
-//          (§6.1 to §6.11); the two services at the bottom are the control plane (§5.2) between the node
-//          agents and the coordinator.
-// WHY: O-03 (decided Sat 5:30pm): control-plane transport is gRPC with tonic, and ".proto files are the
-//      contract". protox compiles this file in build.rs, so no machine needs protoc.
-//      The same messages also have a JSON form (fixtures, logs, the WP-7 status output, bench results) that
-//      follows the §6.0 conventions; see crates/contracts/src/json.rs for how the JSON form is produced.
+// CONCEPT: the schema of every PRD §6 shape (§6.1 to §6.11). build.rs turns each message into a Rust struct
+//          with serde derives; their JSON form is what travels in the SpacetimeDB tables' *_json columns
+//          (crates/control), and what fixtures, logs and bench results use.
+// WHY: D-13 (6:10pm): SpacetimeDB replaced gRPC as the control plane, so this file defines no services any
+//      more. It stays as the type schema (Aries correction on #11, 6:03pm): one place that defines every field,
+//      compiled by protox in pure Rust (no protoc). The JSON form follows the §6.0 conventions; see
+//      crates/contracts/src/json.rs. Protobuf bytes are not used on any wire today.
 // DEPENDS ON: PRD §6 (PROPOSED shapes), §5.6 (states), §6.10 (event kinds), §6.11 (error codes).
 // AFFECTS: WP-3 agent, WP-4 coordinator, WP-5 planner, WP-6 relay, WP-7 status, WP-8 bench, WP-9 recovery,
 //          WP-10 netcheck. Every consumer listed in PRD §6.14.
@@ -32,8 +32,8 @@
 
 syntax = "proto3";
 
-// Package name is neutral on purpose: the project name (O-18) is not decided, and renaming a package
-// later would change every gRPC route.
+// Package name is neutral on purpose: the project name (O-18) is not decided. It names the generated Rust file
+// (OUT_DIR/contracts.v1.rs).
 package contracts.v1;
 
 // =====================================================================================================
@@ -175,7 +175,7 @@ message SpeedInfo {
 // CONCEPT: the agent's periodic "I'm alive, and here is my rpc-server" message.
 // WHY: WP-9 declares a node LOST after node_timeout_ms (O-26) without one; WP-7 shows load and relay bytes.
 // DEPENDS ON: WP-6 fills `relay`.
-// AFFECTS: WP-4 registry, WP-7 status, WP-9 recovery. Sent over CoordinatorService.StreamHeartbeats.
+// AFFECTS: WP-4 registry, WP-7 status, WP-9 recovery. Sent as `heartbeat_json` with the `heartbeat` reducer.
 message Heartbeat {
   uint32 schema_version = 1;
   string node_id = 2;
@@ -236,7 +236,7 @@ enum RelaySource {
 }
 
 // =====================================================================================================
-// §6.3 Command and CommandResult (coordinator -> agent, over AgentService.Execute)
+// §6.3 Command and CommandResult (coordinator -> agent, as rows of the SpacetimeDB `command` table)
 // =====================================================================================================
 
 // CONCEPT: one instruction from the coordinator to a node agent.
@@ -670,51 +670,4 @@ enum EventKind {
   EVENT_KIND_RECOVERY_FAILED = 17;
   EVENT_KIND_NETCHECK_RESULT = 18;
   EVENT_KIND_BENCH_COMPLETED = 19;
-}
-
-// =====================================================================================================
-// Services (the control plane, §5.2)
-// =====================================================================================================
-
-// CONCEPT: served by every node agent; the coordinator is the client.
-// WHY: the coordinator drives startup (§5.5): it tells helpers to start rpc-server, asks for probes, etc.
-//      Unary request/reply keeps each command independently retryable; `command_id` makes retries
-//      traceable, and start/stop are idempotent (§6.3).
-// DEPENDS ON: the agent listening on `agent_addr` (from RegisterRequest; port per O-17, OPEN).
-// AFFECTS: WP-3 implements the server, WP-4 the client.
-service AgentService {
-  rpc Execute(Command) returns (CommandResult);
-}
-
-// CONCEPT: served by the coordinator on main; agents are the clients.
-// WHY: agents register with a coordinator address they are given (§5.5 step 1), then keep one
-//      client-streaming call open and push a Heartbeat every heartbeat_interval_ms (O-26). One long-lived
-//      stream per agent is cheaper than one RPC per heartbeat, and a broken stream is itself a signal.
-//      If the coordinator doesn't know the node (e.g. it restarted), it ends the stream with gRPC status
-//      FAILED_PRECONDITION and the agent registers again.
-// AFFECTS: WP-3 implements the client, WP-4 the server, WP-9 reads heartbeat gaps.
-service CoordinatorService {
-  // Also called again whenever the node's capabilities change (§6.1).
-  rpc Register(RegisterRequest) returns (RegisterResponse);
-  rpc StreamHeartbeats(stream Heartbeat) returns (HeartbeatStreamSummary);
-}
-
-message RegisterRequest {
-  uint32 schema_version = 1;
-  NodeCapabilities capabilities = 2;
-  // host:port where this node's AgentService listens, so the coordinator can send Commands.
-  string agent_addr = 3;
-}
-
-message RegisterResponse {
-  uint32 schema_version = 1;
-  bool accepted = 2;
-  ErrorInfo error = 3;          // e.g. E_VERSION_MISMATCH when accepted = false
-  string coordinator_version = 4;
-}
-
-// Returned when a heartbeat stream ends (normally only on shutdown).
-message HeartbeatStreamSummary {
-  uint32 schema_version = 1;
-  uint64 received = 2;
 }

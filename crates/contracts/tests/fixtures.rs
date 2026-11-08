@@ -10,7 +10,7 @@
 //!   2. Rust type -> JSON. Every key and value in the fixture must appear unchanged in the output.
 //!      ("Subset", not "equal": the output may add keys the fixture omits, written as their defaults.)
 //!   3. JSON output -> Rust type again: must equal step 1.
-//!   4. Rust type -> protobuf bytes -> Rust type: must equal step 1 (the gRPC path loses nothing either).
+//!   4. Rust type -> protobuf bytes -> Rust type: must equal step 1 (the .proto schema itself is consistent).
 
 use contracts::*;
 use prost::Message;
@@ -101,9 +101,6 @@ fixtures! {
     bench_result: BenchResult = "bench_result.json";
     netcheck_result: NetcheckResult = "netcheck_result.json";
     event: Event = "event.json";
-    register_request: RegisterRequest = "register_request.json";
-    register_response: RegisterResponse = "register_response.json";
-    heartbeat_stream_summary: HeartbeatStreamSummary = "heartbeat_stream_summary.json";
 }
 
 /// Every .json file in fixtures/json/ must be listed above, so nothing goes untested.
@@ -211,22 +208,4 @@ fn error_codes_use_section_6_11_spelling() {
         serde_json::to_value(&e).unwrap()["code"],
         "E_MODEL_DOES_NOT_FIT"
     );
-}
-
-// ---- gRPC services exist with the expected shapes (compile-time check) ------------------------
-
-#[allow(dead_code)]
-fn services_compile() {
-    use contracts::v1::agent_service_client::AgentServiceClient;
-    use contracts::v1::agent_service_server::{AgentService, AgentServiceServer};
-    use contracts::v1::coordinator_service_client::CoordinatorServiceClient;
-    use contracts::v1::coordinator_service_server::{CoordinatorService, CoordinatorServiceServer};
-    let _ = AgentServiceClient::<tonic::transport::Channel>::new;
-    let _ = CoordinatorServiceClient::<tonic::transport::Channel>::new;
-    fn assert_server<S: AgentService>(s: S) -> AgentServiceServer<S> {
-        AgentServiceServer::new(s)
-    }
-    fn assert_coord<S: CoordinatorService>(s: S) -> CoordinatorServiceServer<S> {
-        CoordinatorServiceServer::new(s)
-    }
 }
