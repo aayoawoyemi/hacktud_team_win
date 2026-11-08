@@ -648,6 +648,7 @@ const FLOW = (() => {
   const clamp = (v, a = 0, b = 1) => (v < a ? a : v > b ? b : v);
   const ease = t => t * t * (3 - 2 * t);
   const INK = 'rgba(236,236,236,';
+  const BLUE = 'rgba(157,196,255,';   // LUMA blue #9DC4FF
 
   // The design's link for a helper, as a pixel polyline from main to that helper (viewBox 1000x500, stretched).
   function linkPath(id) {
@@ -724,7 +725,7 @@ const FLOW = (() => {
       const pts = linkPath(id);
       if (!pts) continue;
       ctx.save();
-      ctx.strokeStyle = INK + '0.55)'; ctx.lineWidth = 1; ctx.setLineDash([2, 6]); ctx.lineDashOffset = -t * 40;
+      ctx.strokeStyle = BLUE + '0.4)'; ctx.lineWidth = 1; ctx.setLineDash([2, 6]); ctx.lineDashOffset = -t * 40;
       ctx.beginPath(); ctx.moveTo(...pts[0]); for (const p of pts.slice(1)) ctx.lineTo(...p); ctx.stroke();
       ctx.restore();
     }
@@ -739,7 +740,7 @@ const FLOW = (() => {
         run.t += dt;
         const p = clamp(run.t / run.dur);
         // the active link brightens
-        ctx.strokeStyle = INK + '0.5)'; ctx.lineWidth = 1;
+        ctx.strokeStyle = BLUE + '0.28)'; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(...pts[0]); for (const q of pts.slice(1)) ctx.lineTo(...q); ctx.stroke();
         // the token (or a short train for a prompt / backlog), each dot with a two-step fading tail
         for (let k = 0; k < run.train; k++) {
@@ -747,11 +748,11 @@ const FLOW = (() => {
           if (d < 0) continue;
           for (let tail = 2; tail >= 0; tail--) {
             const [x, y] = pointAt(pts, Math.max(0, d - tail * 6));
-            const r = tail ? 2.2 : 3.6;
-            // a black ring cuts the dot out of the white line it rides on, so the token stays readable
+            const r = tail ? 1.8 : 2.9;
+            // a thin black ring cuts the dot out of the line it rides on, so the token stays readable
             ctx.fillStyle = '#000';
-            ctx.beginPath(); ctx.arc(x, y, r + 2, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = INK + (tail ? 0.3 / tail : 1) + ')';
+            ctx.beginPath(); ctx.arc(x, y, r + 1.5, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = BLUE + (tail ? 0.22 / tail : 0.85) + ')';
             ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
           }
         }
@@ -769,7 +770,7 @@ const FLOW = (() => {
     for (const [id, c] of Object.entries(C)) {
       const f = flash[id] || 0;
       if (f > 0) {
-        ctx.strokeStyle = INK + (0.8 * f) + ')'; ctx.lineWidth = 1;
+        ctx.strokeStyle = BLUE + (0.45 * f) + ')'; ctx.lineWidth = 1;
         ctx.strokeRect(c.x + 0.5, c.y + 0.5, c.w - 1, c.h - 1);
         flash[id] = Math.max(0, f - dt * 3.5);
       }
@@ -781,7 +782,7 @@ const FLOW = (() => {
     // heartbeats: a one-pixel blink where the link meets the helper
     for (const b of blinks) {
       const pts = linkPath(b.id);
-      if (pts) { const [x, y] = pts[pts.length - 1]; ctx.fillStyle = INK + (0.7 * b.a) + ')'; ctx.fillRect(x - 1, y - 1, 2, 2); }
+      if (pts) { const [x, y] = pts[pts.length - 1]; ctx.fillStyle = BLUE + (0.5 * b.a) + ')'; ctx.fillRect(x - 1, y - 1, 2, 2); }
       b.a -= dt * 2.5;
     }
     for (let i = blinks.length - 1; i >= 0; i--) if (blinks[i].a <= 0) blinks.splice(i, 1);
