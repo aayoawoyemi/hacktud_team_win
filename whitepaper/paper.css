@@ -1,0 +1,47 @@
+/* whitepaper/paper.css: print style for the Oasis white paper. Adapted from the LUMA research notes
+   (cdxtest/conversion-paper/paper.css: Letter, Cambria, booktabs tables), plus a screen layout for phones. */
+@page { size: Letter; margin: 0.8in 0.9in; }
+body { margin: 0; background: #fff; }
+.paper { font-family: Cambria, Georgia, serif; font-size: 10pt; line-height: 1.36; color: #111; max-width: 6.7in; margin: 0 auto; }
+.paper h1 { text-align: center; font-size: 15pt; margin: 0 0 4pt; line-height: 1.22; }
+.paper p.sub { text-align: center; font-size: 9.3pt; color: #444; margin: 0 0 12pt; }
+.paper h2 { font-size: 11.5pt; margin: 13pt 0 3pt; break-after: avoid; }
+.paper h3 { font-size: 10pt; font-style: italic; font-weight: normal; margin: 7pt 0 2pt; break-after: avoid; }
+.paper p { margin: 0 0 5pt; text-align: justify; hyphens: auto; }
+.paper ul { margin: 0 0 6pt; padding-left: 1.4em; }
+.paper li { margin: 0 0 2pt; }
+.paper .abstract { margin: 0 0.35in 10pt; font-size: 9.5pt; }
+.paper .abstract p { margin-bottom: 4pt; }
+.paper .abstract b { font-variant: small-caps; }
+.paper table { border-collapse: collapse; margin: 4pt auto 3pt; font-size: 8.8pt; width: 100%; }
+.paper th, .paper td { padding: 2.8pt 6pt; text-align: center; border-bottom: 0.6px solid #a0a0a0; vertical-align: top; }
+.paper th.l, .paper td.l { text-align: left; }
+.paper thead th { border-top: 1.4px solid #111; border-bottom: 1px solid #111; vertical-align: bottom; }
+.paper tbody tr:last-child td { border-bottom: 1.4px solid #111; }
+.paper tr.key td { font-weight: bold; }
+.paper tr.sub td { font-style: italic; color: #444; }
+.paper .num { white-space: nowrap; }
+.paper .cap { font-size: 8.6pt; text-align: left; margin: 3pt 0 11pt; color: #222; }
+.paper .cap.tt { margin: 8pt 0 2pt; }
+.paper .ex { break-inside: avoid; page-break-inside: avoid; }
+.paper .fig { text-align: center; break-inside: avoid; page-break-inside: avoid; margin-top: 8pt; }
+.paper .fig img { max-height: 3.1in; object-fit: contain; }
+.paper .fig img { width: 100%; display: block; margin: 0 auto; }
+.paper .pb { break-before: page; page-break-before: always; height: 0; }
+.paper .calc { font-size: 7.6pt; letter-spacing: 0.04em; color: #a33b2b; text-transform: uppercase; }
+.paper .refs p { text-align: left; padding-left: 1.6em; text-indent: -1.6em; font-size: 8.6pt; margin-bottom: 2.5pt; }
+.paper code { font-family: Consolas, monospace; font-size: 8.4pt; }
+.paper .foot { font-size: 8.4pt; color: #555; margin-top: 12pt; border-top: 0.6px solid #a0a0a0; padding-top: 4pt; }
+@media screen {
+  body { padding: 22px 14px 60px; background: #f4f2ee; }
+  .paper { background: #fff; padding: 28px 30px; box-shadow: 0 1px 6px #0002; font-size: 15px; }
+  .paper table { font-size: 12.5px; display: block; overflow-x: auto; }
+  .paper .cap { font-size: 12.5px; }
+}
+@media screen and (max-width: 640px) {
+  body { padding: 0; }
+  .paper { padding: 18px 15px; box-shadow: none; font-size: 16.5px; line-height: 1.5; }
+  .paper p { text-align: left; }
+  .paper .abstract { margin: 0 0 12px; font-size: 15.5px; }
+}
+.paper p.note { text-align: center; font-size: 8.6pt; font-style: italic; color: #555; margin: -6pt 0.5in 12pt; }
