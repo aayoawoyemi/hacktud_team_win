@@ -123,6 +123,17 @@ fn node_states(c: &Coordinator) -> Vec<(String, String)> {
     v
 }
 
+/// The newest llama-server log in `dir` (plan ids are timestamps now, e.g. plan-1794123373-1, not plan-0001).
+fn latest_plan_log(dir: &Path) -> std::path::PathBuf {
+    std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.to_string_lossy().contains("llama-server-plan-"))
+        .max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
+        .expect("no llama-server log")
+}
+
 fn rpc_devices_in_log(path: &std::path::Path) -> Vec<String> {
     let log = std::fs::read_to_string(path).unwrap_or_default();
     let mut d: Vec<String> = log
@@ -182,7 +193,7 @@ fn full_cycle_two_helpers_then_join() {
         node_states(&c).iter().all(|(_, s)| s == "ACTIVE")
     });
     println!("  nodes: {:?}", node_states(&c));
-    let devs = rpc_devices_in_log(&log_dir.join("llama-server-plan-0001.log"));
+    let devs = rpc_devices_in_log(&latest_plan_log(&log_dir));
     println!("  layers on devices: {devs:?}");
     assert!(
         on_helper(&devs, 50072) && on_helper(&devs, 50073),
@@ -207,13 +218,32 @@ fn full_cycle_two_helpers_then_join() {
         rejoin.as_secs_f64()
     );
     assert_eq!(c.cluster_state(), "SERVING");
-    let devs = rpc_devices_in_log(&log_dir.join("llama-server-plan-0002.log"));
+    let devs = rpc_devices_in_log(&latest_plan_log(&log_dir));
     println!("  layers on devices: {devs:?}");
     assert!(
         [50072, 50073, 50074].iter().all(|p| on_helper(&devs, *p)),
         "{devs:?}"
     );
     assert!(!ask(port, "Name one planet.").is_empty());
+
+    // The demo's live-join moment is "stop a helper's agent, start it again" (#11 07:27Z / 07:30Z): the returning
+    // helper must take the normal join path and bring the pool back to SERVING, not leave it DEGRADED.
+    println!("6b. leave + rejoin: helper-c");
+    drop(cc);
+    wait_until("helper-c LOST", 30, || {
+        c.tick().expect("tick");
+        node_states(&c)
+            .iter()
+            .any(|(id, st)| id == "helper-c" && st == "LOST")
+    });
+    let cc = Agent::spawn("helper-c", 50074, &bin, &log_dir);
+    let t2 = Instant::now();
+    wait_until("rejoin re-plan back to SERVING with 3 helpers", 180, || {
+        c.tick().expect("tick");
+        c.cluster_state() == "SERVING" && c.active().len() == 3
+    });
+    println!("  rejoin re-plan in {:.1} s", t2.elapsed().as_secs_f64());
+    assert!(!ask(port, "Name one ocean.").is_empty());
 
     println!("7. stop");
     c.shutdown().expect("shutdown");

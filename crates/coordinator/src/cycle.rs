@@ -334,6 +334,10 @@ impl Coordinator {
             .map(|n| n.node_id)
             .collect();
         self.skipped.retain(|id| online.contains(id));
+        // A helper that went LOST leaves the active set, so when its agent comes back it takes the normal join path
+        // below and the pool re-plans back to SERVING (#11 07:27Z/07:30Z: before, it stayed DEGRADED forever).
+        // Leaving itself still triggers no re-plan (D-14): llama-server keeps serving on the old plan meanwhile.
+        self.active.retain(|id| online.contains(id));
         if self.server.is_none() {
             return Ok(());
         }
