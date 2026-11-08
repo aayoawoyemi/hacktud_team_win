@@ -43,6 +43,14 @@ pub struct Config {
     pub port: u16,
     pub log_dir: PathBuf,
     pub ready_timeout_s: u64,
+    /// Wait for this many helpers before the first bring-up, so startup doesn't load the model twice.
+    pub min_helpers: usize,
+    /// Checkpoint S speed flags, passed to llama-server as-is. `flash_attn`: "on" | "off" | "auto" (-fa).
+    pub flash_attn: Option<String>,
+    /// Extra llama-server arguments, e.g. ["-ctk","q8_0","-ctv","q8_0"] or ["--spec-type","ngram-simple"].
+    pub extra_args: Vec<String>,
+    /// -ts layer shares, RPC devices first, main last (empty = llama.cpp splits by free memory).
+    pub tensor_split: Vec<f64>,
     /// Address other machines use for llama-server, shown as the endpoint in cluster_status (Ponytail #6).
     /// None: `host`, or main's LAN IP toward the first helper when `host` is a wildcard.
     pub public_host: Option<String>,
@@ -64,6 +72,10 @@ impl Default for Config {
             log_dir: std::env::temp_dir(),
             ready_timeout_s: d::READY_TIMEOUT_S,
             public_host: None,
+            min_helpers: 1,
+            flash_attn: None,
+            extra_args: vec![],
+            tensor_split: vec![],
         }
     }
 }
@@ -79,6 +91,11 @@ pub struct Coordinator {
     active: Vec<String>,
     plan_id: String,
     plans: u32,
+    /// Helpers whose join failed this run; left out until their agent restarts (goes LOST, then registers again).
+    skipped: Vec<String>,
+    /// Joined helpers already sent start_rpc_server, and when that join began (command watermark + clock).
+    starting: Vec<String>,
+    join: Option<(u64, Instant)>,
 }
 
 impl Coordinator {
@@ -114,6 +131,9 @@ impl Coordinator {
             active: vec![],
             plan_id: cluster.map(|c| c.plan_id).unwrap_or_default(),
             plans: 0,
+            skipped: vec![],
+            starting: vec![],
+            join: None,
         })
     }
 
@@ -123,6 +143,11 @@ impl Coordinator {
 
     pub fn active(&self) -> &[String] {
         &self.active
+    }
+
+    /// llama-server is up (SERVING).
+    pub fn is_serving(&self) -> bool {
+        self.server.is_some()
     }
 
     pub fn cluster_state(&self) -> String {
@@ -135,17 +160,24 @@ impl Coordinator {
             .unwrap_or_default()
     }
 
-    /// Online helpers that aren't LOST, in node_id order (= the --rpc order, so RPC0 is the first id).
+    /// Online helpers that aren't LOST or skipped, in node_id order (= the --rpc order, so RPC0 is the first id).
     pub fn helpers(&self) -> Vec<NodeRow> {
         let mut h: Vec<NodeRow> = self
-            .conn
+            .online_helpers()
+            .into_iter()
+            .filter(|n| !self.skipped.contains(&n.node_id))
+            .collect();
+        h.sort_by(|a, b| a.node_id.cmp(&b.node_id));
+        h
+    }
+
+    fn online_helpers(&self) -> Vec<NodeRow> {
+        self.conn
             .db
             .node()
             .iter()
             .filter(|n| n.role == "helper" && n.online && n.state != "LOST")
-            .collect();
-        h.sort_by(|a, b| a.node_id.cmp(&b.node_id));
-        h
+            .collect()
     }
 
     /// PRD §5.5 steps 2-6: plan, start helpers, launch, wait for /health, SERVING.
@@ -155,19 +187,12 @@ impl Coordinator {
         // any state, so reset first; the module also moves ACTIVE nodes back to READY.
         if !matches!(
             self.cluster_state().as_str(),
-            "" | "EMPTY" | "STOPPED" | "FAILED"
+            "" | "EMPTY" | "STOPPED" | "FAILED" | "SERVING" | "DEGRADED"
         ) {
             self.set_state("STOPPED", &[], "")?;
         }
         // Ponytail #3: only commands issued from here on count as this bring-up's failures.
-        let since = self
-            .conn
-            .db
-            .command()
-            .iter()
-            .map(|c| c.command_id)
-            .max()
-            .unwrap_or(0);
+        let since = self.max_command_id();
         let helpers = self.helpers();
         if helpers.is_empty() {
             return Err("E_MODEL_DOES_NOT_FIT: no helpers online".into());
@@ -195,7 +220,12 @@ impl Coordinator {
             )
             .map_err(|e| e.to_string())?;
         wait(rx)?;
-        self.set_state("PLANNED", &[], "")?;
+        // SERVING -> PLANNED is the join re-plan; a module published before it allowed that rejects it, so fall
+        // back to STOPPED first (STOPPED is legal from any state).
+        if self.set_state("PLANNED", &[], "").is_err() {
+            self.set_state("STOPPED", &[], "")?;
+            self.set_state("PLANNED", &[], "")?;
+        }
 
         // 3. Start rpc-server on every helper that isn't already serving.
         self.set_state("STARTING_HELPERS", &[], "")?;
@@ -215,19 +245,40 @@ impl Coordinator {
             }
         }
         let deadline = Instant::now() + STEP_TIMEOUT;
+        // A helper whose rpc-server fails (or isn't up in 60 s) is skipped, and the pool comes up on the others;
+        // only when none is left does the bring-up fail (one bad laptop must not block the demo).
+        let mut helpers = helpers;
         let rpc = loop {
-            if let Some(f) = self.failed_command(&ids, since) {
-                return self.fail(&format!("E_RPC_SERVER_START: {f}"));
+            for n in helpers.clone() {
+                if let Some(f) = self.failed_command(std::slice::from_ref(&n.node_id), since) {
+                    self.skip(&n.node_id, &f);
+                    helpers.retain(|h| h.node_id != n.node_id);
+                }
+            }
+            if helpers.is_empty() {
+                return self.fail("E_RPC_SERVER_START: no helper's rpc-server started");
             }
             let addrs: Vec<Option<String>> = helpers.iter().map(|n| self.rpc_addr(n)).collect();
             if addrs.iter().all(Option::is_some) {
                 break addrs.into_iter().flatten().collect::<Vec<_>>();
             }
             if Instant::now() > deadline {
-                return self.fail("E_RPC_SERVER_START: helpers not ready in 60 s");
+                let slow: Vec<String> = helpers
+                    .iter()
+                    .filter(|n| self.rpc_addr(n).is_none())
+                    .map(|n| n.node_id.clone())
+                    .collect();
+                for id in &slow {
+                    self.skip(id, "rpc-server not up in 60 s");
+                }
+                helpers.retain(|h| !slow.contains(&h.node_id));
+                if helpers.is_empty() {
+                    return self.fail("E_RPC_SERVER_START: helpers not ready in 60 s");
+                }
             }
             sleep(POLL);
         };
+        let ids: Vec<String> = helpers.iter().map(|n| n.node_id.clone()).collect();
 
         // 4-6. Launch llama-server over the helpers (RPC devices first, main's own GPU last: O-23) and wait.
         self.set_state("LAUNCHING", &[], "")?;
@@ -242,6 +293,9 @@ impl Coordinator {
             host: Some(self.cfg.host.clone()),
             port: Some(self.cfg.port.into()),
             metrics: Some(true),
+            flash_attn: self.cfg.flash_attn.clone(),
+            extra_args: self.cfg.extra_args.clone(),
+            tensor_split: self.cfg.tensor_split.clone(),
             ..Default::default()
         };
         let log = self
@@ -273,21 +327,112 @@ impl Coordinator {
             let _ = self.set_state("STOPPED", &[], "");
             return Err(format!("llama-server exited: {status}"));
         }
-        let joined: Vec<String> = self
-            .helpers()
+        // A skipped helper whose agent restarted (LOST, then back) gets another chance as a fresh join.
+        let online: Vec<String> = self
+            .online_helpers()
             .into_iter()
             .map(|n| n.node_id)
-            .filter(|id| !self.active.contains(id))
             .collect();
-        if self.server.is_some() && !joined.is_empty() {
-            self.event(
-                "node_registered",
-                &format!("re-planning for joined helpers {joined:?}"),
-            );
-            self.stop_server()?;
-            return self.bring_up();
+        self.skipped.retain(|id| online.contains(id));
+        if self.server.is_none() {
+            return Ok(());
         }
-        Ok(())
+        let joined: Vec<NodeRow> = self
+            .helpers()
+            .into_iter()
+            .filter(|n| !self.active.contains(&n.node_id))
+            .collect();
+        if joined.is_empty() {
+            self.join = None;
+            self.starting.clear();
+            return Ok(());
+        }
+
+        // Safe join (Ponytail #4): the pool keeps SERVING while each joined helper starts rpc-server. Re-plan only
+        // when all of them are up; a helper that fails or isn't up in 60 s is skipped and the pool keeps serving.
+        let since = match self.join {
+            Some((s, _)) => s,
+            None => {
+                let s = self.max_command_id();
+                self.join = Some((s, Instant::now()));
+                s
+            }
+        };
+        for n in &joined {
+            if self.rpc_addr(n).is_none() && !self.starting.contains(&n.node_id) {
+                let (cb, rx) = done();
+                self.conn
+                    .reducers
+                    .issue_command_then(
+                        n.node_id.clone(),
+                        "start_rpc_server".into(),
+                        start_args(n),
+                        cb,
+                    )
+                    .map_err(|e| e.to_string())?;
+                wait(rx)?;
+                self.starting.push(n.node_id.clone());
+            }
+        }
+        let timed_out = self.join.is_some_and(|(_, t)| t.elapsed() > STEP_TIMEOUT);
+        let mut ready = vec![];
+        let mut waiting = false;
+        for n in &joined {
+            let id = n.node_id.clone();
+            if let Some(f) = self.failed_command(std::slice::from_ref(&id), since) {
+                self.skip(&id, &f);
+            } else if self.rpc_addr(n).is_some() {
+                ready.push(id);
+            } else if timed_out {
+                self.skip(&id, "rpc-server not up in 60 s");
+            } else {
+                waiting = true;
+            }
+        }
+        if waiting || ready.is_empty() {
+            return Ok(());
+        }
+        self.join = None;
+        self.starting.clear();
+        eprintln!("coordinator: re-planning for joined helpers {ready:?}");
+        let previous = self.active.clone();
+        if let Some(s) = self.server.take() {
+            s.stop(); // bring_up moves the row SERVING -> PLANNED (no STOPPED on screen)
+        }
+        match self.bring_up() {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // Keep the pool: leave the joined helpers out and bring the previous set back.
+                for id in ready.iter().filter(|id| !previous.contains(id)) {
+                    self.skipped.push(id.clone());
+                }
+                self.event(
+                    "launch_failed",
+                    &format!("join of {ready:?} failed ({e}); restoring the previous pool"),
+                );
+                self.bring_up()
+            }
+        }
+    }
+
+    fn skip(&mut self, id: &str, why: &str) {
+        eprintln!("coordinator: {id} not added: {why}");
+        self.event(
+            "launch_failed",
+            &format!("{id} not added to the pool: {why}"),
+        );
+        self.skipped.push(id.to_string());
+        self.starting.retain(|s| s != id);
+    }
+
+    fn max_command_id(&self) -> u64 {
+        self.conn
+            .db
+            .command()
+            .iter()
+            .map(|c| c.command_id)
+            .max()
+            .unwrap_or(0)
     }
 
     /// R4.13 stop: llama-server first, then every helper's rpc-server, then STOPPED.

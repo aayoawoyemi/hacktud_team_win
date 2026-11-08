@@ -43,19 +43,31 @@ fn run() -> Result<(), String> {
         s.store(true, Ordering::SeqCst);
     });
 
-    eprintln!("waiting for helpers... (press Enter to stop)");
-    while c.helpers().is_empty() && !stop.load(Ordering::SeqCst) {
-        std::thread::sleep(Duration::from_millis(500));
-    }
-    if !stop.load(Ordering::SeqCst) {
-        c.bring_up()?;
-        eprintln!("SERVING on {:?}: {:?}", c.cfg.port, c.active());
-    }
+    let min = c.cfg.min_helpers.max(1);
+    eprintln!("waiting for {min} helper(s)... (press Enter to stop)");
+    // Errors never end the coordinator (a bad join on stage must not take the pool down): they're printed and the
+    // reason is in the event log. When not serving, bring-up is tried again whenever the set of helpers changes.
+    let mut last_try: Option<Vec<String>> = None;
     while !stop.load(Ordering::SeqCst) {
-        let before = c.active().len();
-        c.tick()?;
-        if c.active().len() != before {
-            eprintln!("re-planned, SERVING with {:?}", c.active());
+        if c.is_serving() {
+            let before = c.active().to_vec();
+            if let Err(e) = c.tick() {
+                eprintln!("coordinator: {e}");
+            }
+            if c.is_serving() && c.active() != before.as_slice() {
+                eprintln!("SERVING on {:?}: {:?}", c.cfg.port, c.active());
+            }
+        } else {
+            let ids: Vec<String> = c.helpers().into_iter().map(|n| n.node_id).collect();
+            if ids.len() >= min && last_try.as_ref() != Some(&ids) {
+                last_try = Some(ids);
+                match c.bring_up() {
+                    Ok(()) => eprintln!("SERVING on {:?}: {:?}", c.cfg.port, c.active()),
+                    Err(e) => {
+                        eprintln!("coordinator: {e} (retrying when a helper joins or rejoins)")
+                    }
+                }
+            }
         }
         std::thread::sleep(Duration::from_millis(500));
     }

@@ -371,6 +371,9 @@ pub fn cluster_transition_ok(from: &str, to: &str) -> bool {
     matches!(
         (from, to),
         ("EMPTY" | "STOPPED" | "FAILED", "PLANNED")
+            // Re-plan when a helper joins (D-14), straight from SERVING, so the screen shows PLANNED ->
+            // STARTING_HELPERS -> LAUNCHING -> SERVING instead of a STOPPED in between (Aayo 11:20pm).
+            | ("SERVING" | "DEGRADED", "PLANNED")
             | ("PLANNED", "STARTING_HELPERS")
             | ("STARTING_HELPERS", "LAUNCHING")
             | ("LAUNCHING", "SERVING")
@@ -890,7 +893,8 @@ pub fn set_cluster_status(
                 ctx.db.node().node_id().update(n);
             }
         }
-    } else if cluster_state == "STOPPED" || cluster_state == "FAILED" {
+    } else if cluster_state == "STOPPED" || cluster_state == "FAILED" || cluster_state == "PLANNED"
+    {
         let active: Vec<NodeRow> = ctx
             .db
             .node()
@@ -938,6 +942,7 @@ mod tests {
             ("RECOVERING", "SERVING"),
             ("SERVING", "STOPPED"),
             ("STOPPED", "PLANNED"),
+            ("SERVING", "PLANNED"),
         ] {
             assert!(cluster_transition_ok(from, to), "{from} -> {to}");
         }
@@ -947,7 +952,7 @@ mod tests {
     fn cluster_rejects_skips() {
         assert!(!cluster_transition_ok("EMPTY", "SERVING"));
         assert!(!cluster_transition_ok("PLANNED", "SERVING"));
-        assert!(!cluster_transition_ok("SERVING", "PLANNED"));
+        assert!(!cluster_transition_ok("SERVING", "LAUNCHING"));
     }
 
     #[test]
