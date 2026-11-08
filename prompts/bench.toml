@@ -48,8 +48,7 @@ def format_report(items):
     lines = []
     for name, amount in items:
         lines.append(f"{name:<20} {amount:>10.2f}")
-    return "
-".join(lines)
+    return "\n".join(lines)
 '''
 
 [[prompt]]
