@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- VERSION 2 (Aayo Sun 12:45am): pooled-water flow (basins of Luma-blue spheres, one token at a time). v1 = web/oasis.html.
+<!-- VERSION 2 (Aayo Sun 1:00am): terminal flow: white dots on the design's own links, one token at a time, ctx counters. v1 = web/oasis.html.
 CONCEPT: The Oasis dashboard: Joseph's accepted multiplexer / Graphite / SF Mono design (design/oasis-preview,
          commit f10e8c6) on LIVE pool data. Polls SpacetimeDB (node, heartbeat, cluster_status, event) and main's
          llama-server every second; `ask <question>` streams an answer through the pool with TTFT and tok/s.
@@ -617,19 +617,16 @@ function startLive() {
 }
 
 // =====================================================================================================================
-// CONCEPT: Oasis v2 flow layer: pooled water, not a stream. Each machine keeps a small basin under its card: this
-//          request's context (its KV cache) as beads. A token is one bead (a Luma-blue sphere) that leaves main's basin,
-//          dips into each helper's basin in RPC order (main -> h1 -> main -> h2 -> main), leaves a bead there (that
-//          machine's KV for its layers grows by one) and comes home to main as the next token. Beads go ONE AT A TIME,
-//          in order, like real decode: the next token can't start before the last one is picked. A prompt (prefill)
-//          leaves main as one cohesive batch and fills every basin together. Basins are capped (each bead = several
-//          tokens past the cap), so the picture stays a finite pool, not an endless flow.
-// WHY: Aayo (Sun 12:45am): v1 felt like infinite liquid; v2 should feel like one unified body of water, tokens
-//      visible individually, terminal-ish and constrained, closer to the Luma blue (#9DC4FF). A token's hidden state is
-//      really a vector of floats (896 for Qwen 0.5B, 3840 for Gemma 12B), so the 0/1 glyphs of v1 were decoration;
-//      v2 uses plain shaded spheres. Route from Preston's run-003 page (#35); motion easing from the LUMA hero.
-// DEPENDS ON: the design's `nodes`, `#map-nodes` buttons (same order as `nodes`) and `.topology`.
-// AFFECTS: one canvas over the topology (pointer-events none). Same API as v1: token / prefill / beat / loading.
+// CONCEPT: Oasis v2 flow layer, terminal style. Tokens are small white dots that run ON the topology's own links (the
+//          right-angle routes the design already draws), one at a time, in RPC order: main -> h1 -> main -> h2 ->
+//          main. The link a token is on brightens; the card it reaches flashes its border; each card keeps a
+//          `ctx n/size` counter (that machine's share of the request's context, finite by design: the context window).
+//          A prompt is a short train of dots (one batch). Model weights loading = marching dashes on the link.
+//          Heartbeats = a one-pixel blink where the link meets the helper. White only, nothing else moves.
+// WHY: Aayo (Sun 1:00am): the sphere basins looked like physics class and too separate from the terminal UI. Lean
+//      on the interface itself: its links, its cards, its type, white on black. Route from Preston's run-003 page (#35).
+// DEPENDS ON: the design's `nodes`, `selected`, `context`, `topologyLinks()`, `#map-nodes` buttons, `.topology`.
+// AFFECTS: one canvas over the topology (pointer-events none). Same API as v1: token / prefill / beat / loading / reset.
 // =====================================================================================================================
 const FLOW = (() => {
   const topo = document.querySelector('.topology');
@@ -649,186 +646,141 @@ const FLOW = (() => {
   resize();
 
   const clamp = (v, a = 0, b = 1) => (v < a ? a : v > b ? b : v);
-  const smoother = t => t * t * t * (t * (t * 6 - 15) + 10);
-  const R = 4.2;            // bead radius (px)
-  const CAP = 36;           // beads per basin before each bead stands for more than one token
+  const ease = t => t * t * (3 - 2 * t);
+  const INK = 'rgba(236,236,236,';
 
-  // One shaded sphere sprite per tone: light from the top left, LUMA blue body, darker rim.
-  const spheres = new Map();
-  function sphere(tone) {
-    if (spheres.has(tone)) return spheres.get(tone);
-    const [hi, mid, lo] = { blue: ['#e6f0ff', '#9dc4ff', '#3d5f99'], dim: ['#b9c8dc', '#6e86a8', '#2c3c55'], hot: ['#ffffff', '#c4dcff', '#5a7fc0'] }[tone];
-    const c = document.createElement('canvas');
-    c.width = c.height = 32;
-    const x = c.getContext('2d');
-    const g = x.createRadialGradient(12, 11, 1, 16, 16, 15);
-    g.addColorStop(0, hi); g.addColorStop(0.35, mid); g.addColorStop(1, lo);
-    x.fillStyle = g;
-    x.beginPath(); x.arc(16, 16, 15, 0, Math.PI * 2); x.fill();
-    spheres.set(tone, c);
-    return c;
+  // The design's link for a helper, as a pixel polyline from main to that helper (viewBox 1000x500, stretched).
+  function linkPath(id) {
+    const l = topologyLinks(nodes, selected).find(x => x.to === id);
+    if (!l) return null;
+    const nums = l.path.match(/-?\d+(\.\d+)?/g).map(Number);       // M x0 y0 V y1 H x2 V y3
+    const pts = [[nums[0], nums[1]], [nums[0], nums[2]], [nums[3], nums[2]], [nums[3], nums[4]]].map(([x, y]) => [x / 1000 * W, y / 500 * H]);
+    // start at main's bottom edge and stop at the helper's top edge, so dots run on the visible wire only
+    const C = cards(), m = C.main, h = C[id];
+    if (m && pts[1][1] > m.y + m.h) pts[0][1] = m.y + m.h;
+    if (h && pts[2][1] < h.y) pts[3][1] = h.y;
+    return pts;
   }
-
-  // Basin geometry: a shallow tray just under each node card.
-  function basins() {
-    const base = topo.getBoundingClientRect();
-    const out = {};
+  function lengthOf(pts) { let s = 0; for (let i = 1; i < pts.length; i++) s += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return s; }
+  function pointAt(pts, d) {
+    for (let i = 1; i < pts.length; i++) {
+      const seg = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+      if (d <= seg || i === pts.length - 1) { const k = seg ? clamp(d / seg) : 0; return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * k, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * k]; }
+      d -= seg;
+    }
+    return pts[pts.length - 1];
+  }
+  function cards() {
+    const base = topo.getBoundingClientRect(), out = {};
     [...document.querySelectorAll('#map-nodes > .node')].forEach((b, i) => {
       const n = nodes[i];
       if (!n) return;
       const r = b.getBoundingClientRect();
-      const x0 = r.left - base.left + 10, x1 = r.right - base.left - 10, top = r.bottom - base.top + 4;
-      out[n.id] = { x0, x1, floor: top + 26, top, cx: (x0 + x1) / 2, card: { x: r.left - base.left + r.width / 2, y: r.top - base.top + r.height / 2 } };
+      out[n.id] = { x: r.left - base.left, y: r.top - base.top, w: r.width, h: r.height };
     });
     return out;
   }
 
-  const pools = {};        // node id -> { beads: [{x,y,vx,vy,a}], tokens }
-  const pool = id => (pools[id] ||= { beads: [], tokens: 0 });
-  function deposit(id, x, y, k = 1) {
-    const p = pool(id);
-    p.tokens += k;
-    const want = Math.min(CAP, p.tokens);
-    while (p.beads.length < want) p.beads.push({ x: x + (Math.random() - 0.5) * 6, y, vx: (Math.random() - 0.5) * 30, vy: 40, a: 0 });
-  }
-  function splash(id, x, strength = 1) {
-    for (const b of pool(id).beads) {
-      const d = Math.abs(b.x - x);
-      if (d < 40) { b.vy -= (1 - d / 40) * 90 * strength; b.vx += Math.sign(b.x - x || 1) * (1 - d / 40) * 40 * strength; }
-    }
-  }
+  const ctxCount = {};       // node id -> tokens of this request held there (its KV for its layers)
+  const flash = {};          // node id -> 0..1
+  const queue = [];          // pending tokens { onHome } | { prefill: n }
+  let run = null;            // { legs: [{id, dir}], leg, t, dur, train, carry, homes }
+  let loadingIds = [];
+  const blinks = [];         // { id, a }
 
-  // Travellers: one decode bead at a time (queue), or one cohesive prefill batch.
-  const queue = [];        // pending decode tokens: { onHome }
-  let traveller = null;    // { route, leg, t, dur, from, x, y, rx, ry, count, homes, batch: [{ox,oy}] }
-  let weightIds = [];
-  let ticks = [];          // heartbeat blinks: { id, a }
-
-  function route() {
+  function legs() {
     const helpers = nodes.filter(n => !n.main && n.connection === 'connected' && n.modelState !== 'not_loaded');
-    const r = ['main'];
-    for (const h of helpers) r.push(h.id, 'main');
-    return r;
+    const out = [];
+    for (const h of helpers) out.push({ id: h.id, dir: 1 }, { id: h.id, dir: -1 });
+    return out;
   }
-  function depart(B) {
-    if (traveller || !queue.length) return;
-    // Decode is sequential: a bead leaves only after the last one came home. A backlog travels as one bead carrying
-    // several tokens (shown as a slightly bigger bead), so the picture never becomes an endless stream.
-    const take = queue.length > 4 ? Math.min(queue.length, 6) : 1;
-    const items = queue.splice(0, take);
-    const prefill = items.some(i => i.prefill);
-    const r = route();
-    const start = B.main || Object.values(B)[0];
-    if (!start) return;
-    const n = prefill ? items[0].prefill : 1;
-    traveller = {
-      route: r, leg: 1, t: 0, from: { x: start.cx, y: start.floor - R }, rx: start.cx, ry: start.floor - R,
-      count: prefill ? n : items.length, homes: items.map(i => i.onHome).filter(Boolean), prefill,
-      batch: Array.from({ length: prefill ? Math.min(n, 14) : 1 }, (_, i) => ({ ox: (i % 5 - 2) * R * 1.9, oy: -Math.floor(i / 5) * R * 1.8, x: start.cx, y: start.floor })),
-    };
-    traveller.dur = legDuration();
-    if (r.length === 1) { deposit('main', start.cx, start.floor - R, traveller.count); const h = traveller.homes; traveller = null; for (const f of h) f(); }
+  const legTime = () => clamp(0.7 / (1 + queue.length * 0.4), 0.22, 0.7);
+  function arrive(id) { flash[id] = 1; }
+  function finish(r) {
+    ctxCount.main = (ctxCount.main || 0) + r.carry;
+    arrive('main');
+    for (const h of r.homes) h();
   }
-  const legDuration = () => clamp(0.9 / (1 + queue.length * 0.35), 0.28, 0.9);
+  function start() {
+    if (run || !queue.length) return;
+    // One token at a time, like real decode. A backlog leaves as one train carrying several tokens.
+    const first = queue[0];
+    const items = first.prefill ? queue.splice(0, 1) : queue.splice(0, queue.length > 4 ? Math.min(queue.length, 6) : 1);
+    const pre = items[0].prefill;
+    run = { legs: legs(), leg: 0, t: 0, dur: legTime(), train: pre ? Math.min(8, pre) : Math.min(3, items.length), carry: pre || items.length, homes: items.map(i => i.onHome).filter(Boolean) };
+    if (!run.legs.length) { finish(run); run = null; }
+  }
 
   let last = performance.now();
   function frame(now) {
-    const dt = Math.min(0.04, (now - last) / 1000);
+    const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     const t = now / 1000;
-    const B = basins();
     ctx.clearRect(0, 0, W, H);
+    const C = cards();
 
-    // basins: thin terminal-style tray + token count, beads settle under gravity with cohesion and collisions
-    ctx.font = '8px ui-monospace, "SF Mono", Menlo, monospace';
-    for (const [id, b] of Object.entries(B)) {
-      const p = pool(id);
-      ctx.globalAlpha = 0.35;
-      ctx.strokeStyle = '#4a5a70';
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(b.x0, b.floor - 10); ctx.lineTo(b.x0, b.floor + 1); ctx.lineTo(b.x1, b.floor + 1); ctx.lineTo(b.x1, b.floor - 10); ctx.stroke();
-      if (p.tokens) { ctx.globalAlpha = 0.55; ctx.fillStyle = '#7f93ad'; ctx.fillText(`kv ${p.tokens}`, b.x1 - 34, b.floor + 11); }
-      const cx = b.cx;
-      for (const q of p.beads) {
-        q.vy += 380 * dt;                                   // gravity
-        q.vx += (cx - q.x) * 1.2 * dt;                      // cohesion: the pool holds together
-        q.vx *= 1 - 2.5 * dt; q.vy *= 1 - 1.2 * dt;
-      }
-      for (let i = 0; i < p.beads.length; i++) for (let j = i + 1; j < p.beads.length; j++) {
-        const a = p.beads[i], c = p.beads[j];
-        const dx = c.x - a.x, dy = c.y - a.y, d = Math.hypot(dx, dy) || 0.01, min = R * 2;
-        if (d < min) { const push = (min - d) / 2, nx = dx / d, ny = dy / d; a.x -= nx * push; a.y -= ny * push; c.x += nx * push; c.y += ny * push;
-          const rel = (c.vx - a.vx) * nx + (c.vy - a.vy) * ny; if (rel < 0) { a.vx += rel * nx * 0.5; a.vy += rel * ny * 0.5; c.vx -= rel * nx * 0.5; c.vy -= rel * ny * 0.5; } }
-      }
-      for (const q of p.beads) {
-        q.x += q.vx * dt; q.y += q.vy * dt;
-        if (q.y > b.floor - R) { q.y = b.floor - R; q.vy *= -0.15; }
-        if (q.x < b.x0 + R) { q.x = b.x0 + R; q.vx *= -0.3; }
-        if (q.x > b.x1 - R) { q.x = b.x1 - R; q.vx *= -0.3; }
-        q.a += (0.85 - q.a) * (1 - Math.exp(-dt * 4));
-        ctx.globalAlpha = q.a;
-        ctx.drawImage(sphere('blue'), q.x - R, q.y - R, R * 2, R * 2);
-      }
+    // loading: marching dashes along each receiving helper's link
+    for (const id of loadingIds) {
+      const pts = linkPath(id);
+      if (!pts) continue;
+      ctx.save();
+      ctx.strokeStyle = INK + '0.55)'; ctx.lineWidth = 1; ctx.setLineDash([2, 6]); ctx.lineDashOffset = -t * 40;
+      ctx.beginPath(); ctx.moveTo(...pts[0]); for (const p of pts.slice(1)) ctx.lineTo(...p); ctx.stroke();
+      ctx.restore();
     }
 
-    // weights while loading: a single file of dim beads main -> each helper (a transfer, not a flood)
-    for (const id of weightIds) {
-      const a = B.main, b = B[id];
-      if (!a || !b) continue;
-      for (let k = 0; k < 6; k++) {
-        const p = ((t * 0.45 + k / 6) % 1), e = smoother(p);
-        const x = a.cx + (b.cx - a.cx) * e, y = a.top + (b.top - a.top) * e - Math.sin(Math.PI * p) * 18;
-        ctx.globalAlpha = 0.5 * Math.sin(Math.PI * p);
-        ctx.drawImage(sphere('dim'), x - R * 0.8, y - R * 0.8, R * 1.6, R * 1.6);
-      }
-    }
-
-    // the traveller: one bead (or one cohesive prefill batch) on the real route, easing + a gentle mid-leg arc
-    depart(B);
-    const tr = traveller;
-    if (tr) {
-      const dest = B[tr.route[tr.leg]];
-      if (!dest) { traveller = null; } else {
-        tr.t += dt;
-        const p = clamp(tr.t / tr.dur), e = smoother(p);
-        const to = { x: dest.cx, y: dest.floor - R * 2 };
-        const dx = to.x - tr.from.x, dy = to.y - tr.from.y, len = Math.hypot(dx, dy) || 1;
-        const arc = Math.sin(Math.PI * p) * Math.min(60, len * 0.18);
-        const x = tr.from.x + dx * e + (-dy / len) * arc, y = tr.from.y + dy * e + (dx / len) * arc;
-        const k = 1 - Math.exp(-dt * 14);
-        tr.rx += (x - tr.rx) * k; tr.ry += (y - tr.ry) * k;
-        const big = tr.prefill ? 1 : 1 + Math.min(0.6, (tr.count - 1) * 0.12);
-        for (const m of tr.batch) {
-          const sway = tr.prefill ? Math.sin(t * 6 + m.ox) * 1.5 : 0;
-          const tx = tr.rx + m.ox * (0.6 + 0.4 * Math.sin(Math.PI * p)), ty = tr.ry + m.oy + sway;
-          m.x += (tx - m.x) * (1 - Math.exp(-dt * 10)); m.y += (ty - m.y) * (1 - Math.exp(-dt * 10));
-          ctx.globalAlpha = 0.95;
-          const rr = R * big;
-          ctx.drawImage(sphere('hot'), m.x - rr, m.y - rr, rr * 2, rr * 2);
+    start();
+    if (run) {
+      const L = run.legs[run.leg];
+      let pts = linkPath(L.id);
+      if (!pts) { run = null; } else {
+        if (L.dir < 0) pts = pts.slice().reverse();
+        const len = lengthOf(pts);
+        run.t += dt;
+        const p = clamp(run.t / run.dur);
+        // the active link brightens
+        ctx.strokeStyle = INK + '0.5)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(...pts[0]); for (const q of pts.slice(1)) ctx.lineTo(...q); ctx.stroke();
+        // the token (or a short train for a prompt / backlog), each dot with a two-step fading tail
+        for (let k = 0; k < run.train; k++) {
+          const d = ease(p) * len - k * 9;
+          if (d < 0) continue;
+          for (let tail = 2; tail >= 0; tail--) {
+            const [x, y] = pointAt(pts, Math.max(0, d - tail * 4));
+            ctx.fillStyle = INK + (tail ? 0.22 / tail : 0.95) + ')';
+            ctx.beginPath(); ctx.arc(x, y, tail ? 1.4 : 2.2, 0, Math.PI * 2); ctx.fill();
+          }
         }
         if (p >= 1) {
-          const id = tr.route[tr.leg];
-          splash(id, to.x, tr.prefill ? 1.6 : 1);
-          if (id !== 'main' || tr.leg === tr.route.length - 1) deposit(id, to.x, to.y, tr.count);
-          tr.leg++;
-          tr.from = { x: tr.rx, y: tr.ry };
-          tr.t = 0;
-          tr.dur = legDuration();
-          if (tr.leg >= tr.route.length) { traveller = null; for (const h of tr.homes) h(); }
+          if (L.dir > 0) { ctxCount[L.id] = (ctxCount[L.id] || 0) + run.carry; arrive(L.id); } else arrive('main');
+          run.leg++; run.t = 0; run.dur = legTime();
+          if (run.leg >= run.legs.length) { const r = run; run = null; finish(r); }
         }
       }
     }
 
-    // heartbeats: a small terminal tick at the card corner, once per beat
-    for (const k of ticks) {
-      const b = B[k.id];
-      if (!b) continue;
-      k.a -= dt * 1.6;
-      ctx.globalAlpha = Math.max(0, k.a) * 0.8;
-      ctx.drawImage(sphere('dim'), b.x1 + 2, b.top - 18, 5, 5);
+    // cards: border flash on arrival + a ctx counter in the card's own type
+    ctx.font = '8px ui-monospace, "SF Mono", Menlo, monospace';
+    ctx.textAlign = 'right';
+    for (const [id, c] of Object.entries(C)) {
+      const f = flash[id] || 0;
+      if (f > 0) {
+        ctx.strokeStyle = INK + (0.8 * f) + ')'; ctx.lineWidth = 1;
+        ctx.strokeRect(c.x + 0.5, c.y + 0.5, c.w - 1, c.h - 1);
+        flash[id] = Math.max(0, f - dt * 3.5);
+      }
+      const n = ctxCount[id];
+      if (n) { ctx.fillStyle = INK + '0.55)'; ctx.fillText(`ctx ${n}/${(typeof context === 'number' ? context : 4096).toLocaleString('en-US')}`, c.x + c.w - 8, c.y + c.h + 11); }
     }
-    ticks = ticks.filter(k => k.a > 0);
-    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+
+    // heartbeats: a one-pixel blink where the link meets the helper
+    for (const b of blinks) {
+      const pts = linkPath(b.id);
+      if (pts) { const [x, y] = pts[pts.length - 1]; ctx.fillStyle = INK + (0.7 * b.a) + ')'; ctx.fillRect(x - 1, y - 1, 2, 2); }
+      b.a -= dt * 2.5;
+    }
+    for (let i = blinks.length - 1; i >= 0; i--) if (blinks[i].a <= 0) blinks.splice(i, 1);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
@@ -836,11 +788,10 @@ const FLOW = (() => {
   return {
     token(onHome) { if (!onHome && queue.length > 12) return; queue.push({ onHome }); },
     prefill(n = 10) { queue.unshift({ prefill: n }); },
-    beat(id) { ticks.push({ id, a: 1 }); },
-    loading(ids, on = true) { weightIds = on ? ids.slice() : []; },
-    // A new request starts with empty basins (each request has its own context).
-    reset() { for (const k of Object.keys(pools)) delete pools[k]; queue.length = 0; traveller = null; },
-    get count() { return queue.length + (traveller ? 1 : 0); },
+    beat(id) { blinks.push({ id, a: 1 }); },
+    loading(ids, on = true) { loadingIds = on ? ids.slice() : []; },
+    reset() { for (const k of Object.keys(ctxCount)) delete ctxCount[k]; queue.length = 0; run = null; },
+    get count() { return queue.length + (run ? 1 : 0); },
   };
 })();
 
