@@ -124,6 +124,9 @@ pub fn parse_endpoint(endpoint: &str) -> Result<(String, u16), String> {
     let rest = endpoint
         .strip_prefix("http://")
         .ok_or_else(|| format!("E_CONFIG: endpoint must start with http:// (got {endpoint})"))?
+        .trim_end_matches('/')
+        // Accept the coordinator's published form too: cluster_status.endpoint is http://host:port/v1 (Ponytail #6).
+        .trim_end_matches("/v1")
         .trim_end_matches('/');
     let (host, port) = rest.rsplit_once(':').ok_or_else(|| {
         format!("E_CONFIG: endpoint needs a port, e.g. http://127.0.0.1:8080 (got {endpoint})")
@@ -800,6 +803,10 @@ mod tests {
         assert_eq!(
             parse_endpoint("http://192.168.8.10:8080/").unwrap(),
             ("192.168.8.10".into(), 8080)
+        );
+        assert_eq!(
+            parse_endpoint("http://192.168.8.174:8080/v1").unwrap(),
+            ("192.168.8.174".into(), 8080)
         );
         assert!(parse_endpoint("https://x:1").is_err());
         assert!(parse_endpoint("http://x").is_err());

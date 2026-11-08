@@ -61,6 +61,9 @@ pub const EVENT_KINDS: &[&str] = &[
     "recovery_failed",
     "netcheck_result",
     "bench_completed",
+    // Added (Aayo 11:20pm Sat): a bring-up that didn't reach SERVING. The cluster goes to STOPPED, not FAILED, so
+    // nothing on screen shows a failure; the reason lives here in the event log.
+    "launch_failed",
 ];
 /// §6.2 rpc_server.state.
 pub const RPC_STATES: &[&str] = &["not_started", "starting", "running", "exited", "failed"];
@@ -538,12 +541,17 @@ pub fn register_node(
         Some(n) if n.state == "LOST" => {
             ("node_recovered", "REGISTERED".to_string(), n.registered_at)
         }
+        // register_node only runs at agent start, so this is a new agent process: its rpc-server state is unknown
+        // until the first fresh heartbeat (REGISTERED, then READY from send_heartbeat).
         Some(n) => (
             "node_capabilities_changed",
-            n.state.clone(),
+            "REGISTERED".to_string(),
             n.registered_at,
         ),
     };
+    // Ponytail #1: drop the previous process's heartbeat. Its `seq` counted from the old start, so the new agent's
+    // heartbeats were ignored and its stale "running, port_accepting" row sent the coordinator to a dead rpc-server.
+    ctx.db.heartbeat().node_id().delete(&id);
     let row = node_row(ctx, info, caps_json, state, registered_at);
     if existing.is_some() {
         ctx.db.node().node_id().update(row);
@@ -974,6 +982,10 @@ mod tests {
         ] {
             assert!(EVENT_KINDS.contains(&k), "{k}");
         }
-        assert_eq!(EVENT_KINDS.len(), 19, "§6.10 lists 19 kinds");
+        assert_eq!(
+            EVENT_KINDS.len(),
+            20,
+            "§6.10 lists 19 kinds, plus launch_failed (Aayo 11:20pm)"
+        );
     }
 }

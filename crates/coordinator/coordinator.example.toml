@@ -10,3 +10,5 @@ host = "0.0.0.0"
 port = 8080
 log_dir = "/tmp"
 ready_timeout_s = 300
+# Address other machines use for llama-server (shown as the endpoint). Default: main's LAN IP when host is 0.0.0.0.
+# public_host = "192.168.8.174"

@@ -25,6 +25,17 @@ const STOP_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Runs until Ctrl-C, then stops rpc-server and disconnects (Ctrl-C alone would orphan it: rpc-server ignores SIGINT).
 pub async fn run(cfg: AgentConfig) -> Result<(), String> {
+    // Ponytail #5: a helper bound to loopback would advertise 127.0.0.1, and main's llama-server would dial its own
+    // loopback ("E_RPC_UNREACHABLE" pointing at the wrong machine). Refuse it up front.
+    if cfg.role == "helper"
+        && is_loopback_host(&cfg.rpc_bind)
+        && !is_loopback_host(uri_host(&cfg.spacetime_uri))
+    {
+        return Err(format!(
+            "E_CONFIG: helper rpc_bind is {}; main can't reach it. Set rpc_bind = \"0.0.0.0\" in the agent config",
+            cfg.rpc_bind
+        ));
+    }
     let probe = probe::probe(&cfg).await;
     for e in &probe.errors {
         eprintln!("agent: probe: {e}");
@@ -71,50 +82,80 @@ pub async fn run(cfg: AgentConfig) -> Result<(), String> {
     );
 
     let mut server: Option<RpcServer> = None;
-    let mut seq = 0u64;
+    // Unix ms, not 0: a restarted agent's heartbeats must sort after the old process's (the module drops seq <= stored).
+    let mut seq = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
     let mut tick = tokio::time::interval(Duration::from_millis(cfg.heartbeat_interval_ms));
-    loop {
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => break,
-            _ = tick.tick() => {}
-        }
-        let pending: Vec<CommandRow> = conn
-            .db
-            .command()
-            .iter()
-            .filter(|c| c.node_id == node_id && c.status == "pending")
-            .collect();
-        for cmd in pending {
-            let (cb, rx) = done();
-            conn.reducers
-                .claim_command_then(cmd.command_id, cb)
-                .map_err(|e| e.to_string())?;
-            if wait(rx).await.is_err() {
-                continue; // no longer pending
+    // Ponytail #13: one Ctrl-C future for the whole run, so a press during a long start command isn't lost.
+    let stop = tokio::signal::ctrl_c();
+    tokio::pin!(stop);
+    // Ponytail #8: the loop runs in an inner block so any error still reaches the rpc-server stop below
+    // (an early `?` used to skip it, and process::exit could orphan rpc-server holding the port).
+    let result: Result<(), String> = async {
+        loop {
+            tokio::select! {
+                _ = &mut stop => break,
+                _ = tick.tick() => {}
             }
-            let r = execute(&cmd, &cfg, &probe, &caps_json, &mut server).await;
-            eprintln!(
-                "agent: {} #{} -> {}",
-                cmd.kind,
-                cmd.command_id,
-                if r.ok { "ok" } else { "failed" }
-            );
+            let pending: Vec<CommandRow> = conn
+                .db
+                .command()
+                .iter()
+                .filter(|c| c.node_id == node_id && c.status == "pending")
+                .collect();
+            for cmd in pending {
+                let (cb, rx) = done();
+                conn.reducers
+                    .claim_command_then(cmd.command_id, cb)
+                    .map_err(|e| e.to_string())?;
+                if wait(rx).await.is_err() {
+                    continue; // no longer pending
+                }
+                let r = execute(&cmd, &cfg, &probe, &caps_json, &mut server).await;
+                eprintln!(
+                    "agent: {} #{} -> {}",
+                    cmd.kind,
+                    cmd.command_id,
+                    if r.ok { "ok" } else { "failed" }
+                );
+                conn.reducers
+                    .complete_command(cmd.command_id, r.ok, r.result, r.code, r.message)
+                    .map_err(|e| e.to_string())?;
+            }
+            seq += 1;
+            let (hb, json) = heartbeat(seq, server.as_ref());
             conn.reducers
-                .complete_command(cmd.command_id, r.ok, r.result, r.code, r.message)
+                .send_heartbeat(hb, json)
                 .map_err(|e| e.to_string())?;
         }
-        seq += 1;
-        let (hb, json) = heartbeat(seq, server.as_ref());
-        conn.reducers
-            .send_heartbeat(hb, json)
-            .map_err(|e| e.to_string())?;
+        Ok(())
     }
+    .await;
     if let Some(mut s) = server {
         s.stop(STOP_TIMEOUT).await;
     }
     let _ = conn.disconnect();
     eprintln!("agent: stopped");
-    Ok(())
+    result
+}
+
+/// Host part of "http://host:port/..." (or the input if it has no scheme).
+fn uri_host(uri: &str) -> &str {
+    let rest = uri.split("://").last().unwrap_or_default();
+    let hostport = rest.split('/').next().unwrap_or_default();
+    hostport
+        .rsplit_once(':')
+        .map(|(h, _)| h)
+        .unwrap_or(hostport)
+}
+
+fn is_loopback_host(h: &str) -> bool {
+    let h = h.trim_start_matches('[').trim_end_matches(']');
+    h == "localhost"
+        || h.parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
 }
 
 struct Outcome {
@@ -455,5 +496,26 @@ mod tests {
             ("not_started", false, None)
         );
         assert!(json.contains("\"not_started\""));
+    }
+}
+
+#[cfg(test)]
+mod loopback_tests {
+    use super::{is_loopback_host, uri_host};
+
+    #[test]
+    fn uri_host_strips_scheme_port_and_path() {
+        assert_eq!(uri_host("http://192.168.8.174:3000"), "192.168.8.174");
+        assert_eq!(uri_host("http://localhost:3000/x"), "localhost");
+        assert_eq!(uri_host("127.0.0.1"), "127.0.0.1");
+    }
+
+    #[test]
+    fn loopback_detection() {
+        assert!(is_loopback_host("127.0.0.1"));
+        assert!(is_loopback_host("localhost"));
+        assert!(is_loopback_host("::1"));
+        assert!(!is_loopback_host("0.0.0.0"));
+        assert!(!is_loopback_host("192.168.8.113"));
     }
 }
