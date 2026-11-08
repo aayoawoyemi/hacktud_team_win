@@ -4,14 +4,16 @@
 //! WHY: O-01 option A (Rust supervises the official llama.cpp binaries as child processes). The probe before launch
 //!      exists because llama-server aborts outright when an --rpc address is unreachable (ggml-rpc.cpp:653, from
 //!      pi-research in #11), so a dead helper must be caught here with a readable error, not as a crash.
-//! DEPENDS ON: PRD §6.6 LaunchSpec field names (mirrored locally until WP-2's contracts crate lands, PR #18);
-//!             llama-server flags of build 8665 (O-14); §6.11 error codes.
+//! DEPENDS ON: `contracts::LaunchSpec` (§6.6) and `contracts::ErrorCode` (§6.11), both from WP-2 (#18);
+//!             llama-server flags of build 8665 (O-14).
 //! AFFECTS: WP-9 recovery (relaunch uses start/stop), WP-7 status (reads the log file and readiness), WP-8 bench
 //!          (needs the endpoint up). If a flag mapping here changes, the §6.6 table in the PRD must change too.
 //!
 //! Rejected: tokio + reqwest. Everything here is one child process and one localhost GET, which std does in a
 //! few lines; an async runtime can come with the SpacetimeDB client when the coordinator needs one.
 
+use contracts::ErrorCode;
+pub use contracts::LaunchSpec;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
@@ -20,34 +22,12 @@ use std::process::{Child, Command, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-// CONCEPT: local mirror of PRD §6.6 LaunchSpec, same field names.
-// WHY: WP-2's shared type is still in review (PR #18, being reworked for D-13). Same names means swapping to
-//      `contracts::LaunchSpec` later is a one-line import change.
-// shortcut: `speculative` (WP-S1 stretch) is left out; add it with the contracts type if O-15 is ever decided.
-#[derive(Debug, Clone, Default)]
-pub struct LaunchSpec {
-    pub plan_id: String,
-    pub llama_server_path: String,
-    pub model_path: String,
-    /// Helper rpc-server addresses, `host:port`, in the order llama-server will number them (RPC0, RPC1, ...).
-    pub rpc: Vec<String>,
-    pub n_gpu_layers: Option<String>,
-    pub split_mode: Option<String>,
-    /// `-ts` shares. llama.cpp reads these as shares of the LAYER COUNT, not bytes, RPC devices first and main's
-    /// own device last (llama-model.cpp:1733-1789). The planner should pass integer layer counts.
-    pub tensor_split: Option<Vec<f64>>,
-    pub devices: Option<Vec<String>>,
-    pub ctx_size: Option<u32>,
-    pub parallel: Option<u32>,
-    pub host: Option<String>,
-    pub port: Option<u16>,
-    pub metrics: bool,
-    pub flash_attn: Option<String>,
-    pub extra_args: Vec<String>,
-    pub env: Vec<(String, String)>,
-}
+// LaunchSpec notes (the shared §6.6 type): `rpc` is in the order llama-server numbers the helpers (RPC0, RPC1, ...);
+// `tensor_split` holds shares of the LAYER COUNT, not bytes, RPC devices first and main's own device last
+// (llama-model.cpp:1733-1789), so the planner passes integer layer counts. Empty lists mean "flag not passed".
+// `speculative` (WP-S1 stretch) isn't mapped yet.
 
-// CONCEPT: the §6.11 codes this module can raise. `code()` gives the wire string for events and status.
+// CONCEPT: the §6.11 failures this module can raise. `code()` gives the shared ErrorCode for events and status.
 #[derive(Debug, thiserror::Error)]
 pub enum LaunchError {
     #[error("E_RPC_UNREACHABLE: helper rpc-server {0} is not accepting connections")]
@@ -61,17 +41,16 @@ pub enum LaunchError {
 }
 
 impl LaunchError {
-    pub fn code(&self) -> &'static str {
+    pub fn code(&self) -> ErrorCode {
         match self {
-            Self::RpcUnreachable(_) => "E_RPC_UNREACHABLE",
-            Self::PortInUse(_) => "E_PORT_IN_USE",
-            Self::LaunchFailed(_) => "E_LAUNCH_FAILED",
-            Self::NotReadyTimeout(_) => "E_NOT_READY_TIMEOUT",
+            Self::RpcUnreachable(_) => ErrorCode::ERpcUnreachable,
+            Self::PortInUse(_) => ErrorCode::EPortInUse,
+            Self::LaunchFailed(_) => ErrorCode::ELaunchFailed,
+            Self::NotReadyTimeout(_) => ErrorCode::ENotReadyTimeout,
         }
     }
 }
 
-const DEFAULT_PORT: u16 = 8080; // llama-server's own default
 const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// R4.6: the llama-server arguments for a spec, following the §6.6 mapping table. `None` = flag not passed,
@@ -91,15 +70,13 @@ pub fn args(spec: &LaunchSpec) -> Vec<String> {
     if let Some(v) = &spec.split_mode {
         flag("-sm", v.clone());
     }
-    if let Some(v) = &spec.tensor_split {
+    if !spec.tensor_split.is_empty() {
         // f64 Display prints 12.0 as "12", so integer layer counts stay integers on the command line.
-        flag(
-            "-ts",
-            v.iter().map(f64::to_string).collect::<Vec<_>>().join(","),
-        );
+        let ts: Vec<String> = spec.tensor_split.iter().map(f64::to_string).collect();
+        flag("-ts", ts.join(","));
     }
-    if let Some(v) = &spec.devices {
-        flag("-dev", v.join(","));
+    if !spec.devices.is_empty() {
+        flag("-dev", spec.devices.join(","));
     }
     // Careful: on llama-server `-c` is context size; on rpc-server `-c` means cache (PRD §4.3).
     if let Some(v) = spec.ctx_size {
@@ -117,7 +94,7 @@ pub fn args(spec: &LaunchSpec) -> Vec<String> {
     if let Some(v) = &spec.flash_attn {
         flag("-fa", v.clone());
     }
-    if spec.metrics {
+    if spec.metrics == Some(true) {
         a.push("--metrics".to_string());
     }
     a.extend(spec.extra_args.iter().cloned());
@@ -140,7 +117,10 @@ fn local_addr(spec: &LaunchSpec) -> String {
         None | Some("0.0.0.0") | Some("::") => "127.0.0.1",
         Some(h) => h,
     };
-    format!("{host}:{}", spec.port.unwrap_or(DEFAULT_PORT))
+    let port = spec
+        .port
+        .unwrap_or(contracts::defaults::LLAMA_SERVER_PORT.into());
+    format!("{host}:{port}")
 }
 
 /// A running llama-server. Dropping it kills the process, so the coordinator exiting (or panicking) never leaves
@@ -168,7 +148,7 @@ pub fn start(spec: &LaunchSpec, log_path: &Path) -> Result<LlamaServer, LaunchEr
         .map_err(|e| LaunchError::LaunchFailed(format!("log file: {e}")))?;
     let child = Command::new(&spec.llama_server_path)
         .args(args(spec))
-        .envs(spec.env.iter().cloned())
+        .envs(&spec.env)
         .stdin(Stdio::null())
         .stdout(log)
         .stderr(log2)
@@ -227,14 +207,17 @@ impl Drop for LlamaServer {
     }
 }
 
-/// One HTTP/1.0 GET /health; true on a 200 status line.
-/// shortcut: hand-written HTTP for one localhost endpoint; switch to an HTTP client crate if the coordinator
+/// One HTTP/1.0 GET /health; true on a 200 status line. `addr` is `host:port`; host may be a name
+/// (`mac-main.local`), resolved like `accepting()` does (Aries' review note on #22).
+/// shortcut: hand-written HTTP for one endpoint; switch to an HTTP client crate if the coordinator
 /// starts reading /metrics or /slots (WP-7).
 pub fn health_ok(addr: &str) -> bool {
-    let Ok(a) = addr.parse::<SocketAddr>() else {
-        return false;
-    };
-    let Ok(mut s) = TcpStream::connect_timeout(&a, PROBE_TIMEOUT) else {
+    let Some(mut s) = addr
+        .to_socket_addrs()
+        .into_iter()
+        .flatten()
+        .find_map(|a| TcpStream::connect_timeout(&a, PROBE_TIMEOUT).ok())
+    else {
         return false;
     };
     let _ = s.set_read_timeout(Some(PROBE_TIMEOUT));
