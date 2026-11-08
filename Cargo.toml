@@ -1,11 +1,12 @@
 # CONCEPT: the one Cargo workspace for all team Rust code (PRD §5.7). Every crate under crates/ is a member,
 #          so `cargo build` / `cargo test` at the repo root builds and tests everything with one lockfile.
-# WHY: WP-12 R12.1. One workspace means one dependency resolution (no two versions of tonic/prost fighting),
+# WHY: WP-12 R12.1. One workspace means one dependency resolution (no two versions of prost or spacetimedb fighting),
 #      one target/ folder, and one command for Aries to run on every PR. O-01 (Rust supervises the official
-#      llama.cpp binaries) means no C++ is built here; O-03 (gRPC via tonic + protox) means no protoc is needed.
-# DEPENDS ON: rust-toolchain.toml (pins the compiler, 1.93.1); crates/*/Cargo.toml.
+#      llama.cpp binaries) means no C++ is built here; protox compiles the .proto type
+#      schema in pure Rust, so no protoc is needed (D-13: SpacetimeDB is the control plane, no gRPC).
+# DEPENDS ON: rust-toolchain.toml (pins the compiler, 1.99.1 + wasm32); crates/*/Cargo.toml.
 # AFFECTS: every crate. Adding a crate = add it to `members` below. Shared dependency versions live in
-#          [workspace.dependencies] so crates write `tonic = { workspace = true }` instead of their own version.
+#          [workspace.dependencies] so crates write `serde = { workspace = true }` instead of their own version.
 #
 # Rejected: a glob `members = ["crates/*"]`. Explicit names make a missing or misnamed folder a loud error,
 # and keep the WP-5 planner hand-off visible (another agent moves his crate into crates/planner).

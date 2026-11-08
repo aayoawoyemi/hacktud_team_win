@@ -6,7 +6,7 @@
 //!      - `enums::*`: enum fields as the short names from §6 ("running", "SERVING", "E_CONFIG").
 //!      - `null_as_empty`: lists/maps §6 shows as `null` when unset.
 //! DEPENDS ON: the generated enums in `crate::v1` (their `as_str_name` / `from_str_name`).
-//! AFFECTS: JSON only. The protobuf wire format (gRPC) is not touched by anything here.
+//! AFFECTS: JSON only. No protobuf bytes go on any wire (D-13: SpacetimeDB, not gRPC).
 
 use serde::de::{self, Deserializer, Visitor};
 use serde::{Deserialize, Serialize, Serializer};
