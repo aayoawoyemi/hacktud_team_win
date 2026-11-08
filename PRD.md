@@ -140,7 +140,7 @@ The model is split by layers. Each machine holds a block of the model's layers i
 | O-23 | Do main's own devices hold layers? | main contributes its devices; main only coordinates and keeps embeddings and output | WP-4, WP-5 | Checkpoint A |
 | O-24 | Config mechanism and logging | TOML file per role; `.env` per machine (the repo copies `.env` into task folders and never commits it); CLI flags. Logs as text or JSON lines, and where | WP-2, WP-3, WP-4, WP-12 | kickoff |
 | O-25 | Context length per demo part | set per model in config; drives KV-cache memory (§4.4) | WP-5, WP-11 | with O-09 |
-| O-26 | Heartbeat interval, node timeout, launch-ready timeout | numbers in config | WP-3, WP-4, WP-9 | kickoff (any values; tune later) |
+| O-26 | Heartbeat interval, node timeout, launch-ready timeout (DECIDED 7:55pm: 1000 ms / 6000 ms / 120 s, §3.3) | numbers in config | WP-3, WP-4, WP-9 | kickoff (any values; tune later) |
 
 Kickoff must settle: O-01, O-02, O-03, O-04, O-06, O-14, O-16, O-17, O-19, O-24, O-26. Each blocks parallel work.
 
@@ -148,6 +148,9 @@ Kickoff must settle: O-01, O-02, O-03, O-04, O-06, O-14, O-16, O-17, O-19, O-24,
 
 | ID | Decision | Who | When |
 |---|---|---|---|
+| O-26 | Timings: agent heartbeat every 1000 ms; node LOST after 6000 ms without one; coordinator waits up to 120 s for llama-server `/health`. In `contracts::defaults`; TOML may override (O-24) | Aayo | Sat 7:55pm |
+| O-27 | SpacetimeDB database name on main is `pool` (`spacetime publish -s local -p crates/control pool -y`); tests use `pool-smoke` | Aayo | Sat 7:55pm |
+| O-17b | Ports: SpacetimeDB 3000 (standalone default, 0.0.0.0), rpc-server 50052, llama-server 8080, netcheck 50060 | Aayo | Sat 7:55pm |
 | O-06 | Main machine is a Mac: the one with the most memory and free disk, kept plugged in, not used for coding | Aayo | Sat 5:30pm |
 | O-01 | Option A: Rust supervises the official llama.cpp binaries as child processes | Aayo | Sat 5:30pm |
 | O-03 | Control-plane transport is gRPC with tonic; `.proto` files are the contract; `protox` compiles them so no machine needs `protoc` | Aayo | Sat 5:30pm |
