@@ -309,10 +309,9 @@ impl Coordinator {
         }
         // Ponytail #3: only commands issued from here on count as this bring-up's failures.
         let since = self.max_command_id();
+        // Zero helpers is allowed: recovery and model switches may run on main alone (Aries #52 review: the 12B fits on
+        // the M3). The first bring-up still waits for min_helpers in the binary's loop.
         let helpers = self.helpers();
-        if helpers.is_empty() {
-            return Err("E_MODEL_DOES_NOT_FIT: no helpers online".into());
-        }
         let ids: Vec<String> = helpers.iter().map(|n| n.node_id.clone()).collect();
 
         // 2. Plan. Time-based id, so each run gets its own plan row and llama-server log (Ponytail #14).
@@ -503,7 +502,10 @@ impl Coordinator {
             // Make ONE bring-up with the helpers still online (their agents restart rpc-server on command; a LOST
             // helper is left out) before giving up. Only if that fails does the pool go to STOPPED (never FAILED on
             // screen, Aayo 11:20pm) and wait for an operator; the reasons are in the event log.
-            if self.helpers().len() >= self.cfg.min_helpers.max(1) {
+            // No min_helpers gate (Aries #52 review, 07:30Z): that key only guards the first load; recovery runs with
+            // whatever helpers are online, zero included. A model that no longer fits fails in llama-server's load and
+            // is logged (shortcut: plan_for says fits=true until WP-5's planner #20 is wired, so no fast refusal yet).
+            {
                 self.event("recovery_started", "llama-server exited; one bring-up with the online helpers");
                 // Heartbeats lag a crash by up to a beat: the dead helper still reads `running` (found by full_cycle
                 // 6g). Wait (<= 10 s) until no online helper claims a running rpc-server whose port is closed, so
