@@ -55,7 +55,7 @@ Oasis has two layers.
   on each helper. llama.cpp splits the model by layers and sends activations between machines for every token.
 
 ```
-            browser: web/oasis-v2.html  (reads SpacetimeDB :3000 and llama-server :8080)
+            browser: web/oasis.html     (reads SpacetimeDB :3000 and llama-server :8080)
                                   |
  main Mac  +----------------------+-----------------------+
            | SpacetimeDB :3000  <-- coordinator --> llama-server :8080
@@ -116,8 +116,9 @@ command-line tools launched by another app (errno 65, Apple TN3179).
    ```
 
 5. Dashboard, from any machine that reaches main: `cd web && python3 -m http.server 8000`, then open
-   `http://<main-ip>:8000/oasis-v2.html?stdb=http://<main-ip>:3000&llama=http://<main-ip>:8080`.
-   `oasis-v2.html?fixture=1` shows sample data without a pool.
+   `http://<main-ip>:8000/oasis.html?stdb=http://<main-ip>:3000&llama=http://<main-ip>:8080` (the demo dashboard).
+   `oasis.html?demo=1` runs through sample data without a pool. `oasis-v2.html` (same parameters) adds a model
+   menu and a chat.
 6. Chat: `llama-server` on main serves the OpenAI-style API at `http://<main-ip>:8080/v1/chat/completions`.
 7. Bench: copy `crates/bench/bench.example.toml` to `bench.toml`, set `scenario`, `model_id` and `nodes` to match
    the launch, then run `cargo run -p bench --release -- bench.toml`.
@@ -156,7 +157,7 @@ After changing `crates/control`, regenerate the committed client bindings:
 | `crates/bench` | Benchmark runner: time to first token and tokens/s, written as JSONL, CSV and markdown |
 | `crates/netcheck` | Port reachability, round-trip time and throughput between machines |
 | `crates/planner`, `crates/relay` | Placeholders for the split planner and relay telemetry |
-| `web/` | Dashboards: `oasis-v2.html` (live, token flow view) and `oasis.html` (v1) |
+| `web/` | Dashboards: `oasis.html` (the demo dashboard) and `oasis-v2.html` (adds a model menu and chat) |
 | `scripts/` | Team git commands and the night bench (`bench-night.sh`) |
 | `test-runs/` | Logs and numbers from every run on the hardware |
 | `prompts/` | Bench prompts (`bench.toml`) |
