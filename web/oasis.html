@@ -5,7 +5,7 @@
 WHY: Aayo (Sun 12:00am): real data on the new frontend. Data access follows #32 (SpacetimeDB HTTP SQL, CORS open,
      anonymous reads). #33 rule: nothing on screen says FAILED.
 DEPENDS ON: Open on any machine that can reach main: web/oasis.html?stdb=http://<main>:3000&llama=http://<main>:8080
-            (defaults: this page's host, db `pool`). ?main_ram=24&main_gpu=17.8 when main runs no agent.
+            (defaults: this page's host, db `pool`). ?main_ram=16&main_gpu=11.8 when main (M3 Air .113) runs no agent.
             ?fixture=1 = the original fixture preview. ?ask=... asks one question on load.
 AFFECTS: Display only; never calls a reducer. The capacity panel and join preview remain estimates/previews. -->
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Oasis terminal dashboard. Multiplexer, Graphite and SF Mono with inspector-based model controls. Interactive design preview; fixture data only."><title>Oasis / nodes</title><style>
@@ -894,7 +894,7 @@ async function runDemo() {
       demoCaption('main is up: SpacetimeDB holds the pool state, the coordinator waits for helpers');
       await sleep(2500);
 
-      nodes.push(mk('m5', 'm5', 'MacBook Pro M5 / 24 GB / 192.168.8.174', 24, 17.8)); names.m5 = 'm5'; render();
+      nodes.push(mk('m5', 'm5', 'MacBook Air M5 / 24 GB / 192.168.8.174', 24, 17.8)); names.m5 = 'm5'; render();
       demoCaption('discovery: m5 runs one agent command; it reports its GPU and free memory');
       await sleep(1400);
       nodes[1].connection = 'connected'; render();
