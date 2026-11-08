@@ -5,32 +5,25 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Oasis demo script</title>
 <style>
-  :root { --bg:#0e1116; --fg:#e8ecf2; --mute:#8a93a3; --line:#232a35;
-          --aayo:#7cc4ff; --bro:#ffb86b; --pres:#8be28b; }
+  :root { --bg:#0e1116; --fg:#e8ecf2; --mute:#8a93a3; --line:#232a35; --aayo:#7cc4ff; --bro:#ffb86b; --pres:#8be28b; }
   * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg);
-         font:19px/1.6 Georgia, "Iowan Old Style", serif; }
-  nav { position:sticky; top:0; z-index:2; display:flex; gap:6px; overflow-x:auto;
-        padding:10px 12px; background:#0e1116ee; border-bottom:1px solid var(--line);
-        font:600 14px/1 system-ui, sans-serif; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:18px/1.55 system-ui, -apple-system, sans-serif; }
+  nav { position:sticky; top:0; z-index:2; display:flex; gap:6px; overflow-x:auto; padding:10px 12px;
+        background:#0e1116ee; border-bottom:1px solid var(--line); font:600 14px/1 system-ui, sans-serif; }
   nav a { flex:none; padding:8px 12px; border-radius:999px; color:var(--bg); text-decoration:none; }
-  main { max-width:680px; margin:0 auto; padding:16px 18px 80px; }
-  h1 { font:700 26px/1.2 system-ui, sans-serif; margin:18px 0 4px; }
-  .sub { color:var(--mute); font:15px/1.4 system-ui, sans-serif; margin:0 0 18px; }
-  section { border-left:4px solid; padding:2px 0 8px 16px; margin:34px 0; }
-  h2 { font:700 21px/1.25 system-ui, sans-serif; margin:0 0 2px; }
-  .meta { color:var(--mute); font:14px/1.4 system-ui, sans-serif; margin-bottom:12px; }
-  .cue { display:block; color:var(--mute); font:italic 15px/1.45 system-ui, sans-serif;
-         margin:18px 0 6px; padding:6px 10px; background:#161b23; border-radius:6px; }
-  details { background:#141922; border:1px solid var(--line); border-radius:8px;
-            padding:10px 14px; margin:12px 0 18px; }
-  summary { cursor:pointer; font:600 16px/1.4 system-ui, sans-serif; color:var(--pres); }
-  details p { font-size:17px; }
-  .note { color:var(--mute); font:14px/1.5 system-ui, sans-serif; }
+  main { max-width:640px; margin:0 auto; padding:14px 18px 70px; }
+  h1 { font-size:24px; margin:16px 0 2px; }
+  .sub { color:var(--mute); font-size:14px; margin:0 0 10px; }
+  section { border-left:4px solid; padding:2px 0 6px 16px; margin:28px 0; }
+  h2 { font-size:20px; margin:0; }
+  .meta { color:var(--mute); font-size:13px; margin:2px 0 10px; }
+  ul { margin:6px 0; padding-left:20px; } li { margin:4px 0; }
+  .say { font-style:italic; color:#cfd6e0; }
+  .cue { color:var(--mute); font-size:14px; background:#161b23; border-radius:6px; padding:5px 10px; margin:12px 0 4px; display:block; }
   .aayo { border-color:var(--aayo); } .aayo h2 { color:var(--aayo); }
   .bro  { border-color:var(--bro); }  .bro h2  { color:var(--bro); }
   .pres { border-color:var(--pres); } .pres h2 { color:var(--pres); }
-  .qa p { font-size:17px; } .qa b { font-family:system-ui, sans-serif; }
+  .qa li b { color:var(--fg); }
 </style>
 </head>
 <body>
@@ -38,78 +31,84 @@
   <a href="#open" style="background:var(--aayo)">1 Aayo</a>
   <a href="#problems" style="background:var(--bro)">2 Problems</a>
   <a href="#demo" style="background:var(--pres)">3 Preston</a>
-  <a href="#numbers" style="background:var(--aayo)">4 Numbers</a>
-  <a href="#qa" style="background:#c9d1dc">Q&amp;A</a>
+  <a href="#results" style="background:var(--aayo)">4 Results</a>
+  <a href="#qa" style="background:#8a93a3">Q&amp;A</a>
 </nav>
 <main>
-<h1>Oasis: demo script</h1>
-<p class="sub">About 4 minutes of speaking, which leaves about 1 minute of a 5-minute judging slot for questions. Before each judge: pool SERVING on the 26B (preloaded), dashboard open, chat empty, router and switch visible.</p>
+<h1>Oasis demo script</h1>
+<p class="sub">5-minute judge visit. Before each judge: pool SERVING on the 26B, dashboard on 01 pool, chat empty, router and switch visible.</p>
 
-<section id="open" class="aayo">
+<section class="aayo" id="open">
   <h2>1. What Oasis is</h2>
-  <div class="meta">Aayo · 0:00 to 0:30</div>
-  <p>Good afternoon. We are Oasis. Oasis distributes LLM inference across idle GPUs, pooling memory over a private, offline network to run models no single device can hold, and in doing so makes private AI available to small organizations on hardware they already own.</p>
-  <p>In practical terms, a small company that deals in law or healthcare could use the computers lying around its office to build a mini home lab using our protocol. These three MacBook Airs, this router and this switch are that lab. At this moment they are serving a 25-gigabyte language model, and none of them is connected to the internet.</p>
-  <p>My brother will describe the problems this addresses.</p>
+  <p class="meta">Aayo · ~20 s</p>
+  <ul>
+    <li class="say">"Oasis distributes LLM inference across idle GPUs, pooling memory over a $100 offline network to run models no single device can hold, democratizing private AI for small vendors on reused hardware."</li>
+    <li>These 3 MacBook Airs + this router and switch are the whole setup.</li>
+    <li>Right now they're serving a 25 GB model that none of them can hold alone. No internet.</li>
+  </ul>
+  <span class="cue">Hand-off to your brother:</span>
+  <ul><li class="say">"Dang, Loki, I got the easiest part. Do you want to switch? Already memorized."</li></ul>
 </section>
 
-<section id="problems" class="bro">
-  <h2>2. The three problems</h2>
-  <div class="meta">Aayo's brother · 0:30 to 1:45</div>
-  <p>Oasis addresses three problems: the scarcity of compute, the privacy of data, and access to AI together with the waste of existing hardware.</p>
-  <p>The first is scarcity. Demand for GPUs and for inference has grown faster than supply, and both now sell at a premium. For running a large model, the binding constraint is memory. A model's weights must fit in GPU memory before it can answer a single question, and a machine with enough memory to hold a capable model costs thousands of dollars. For most small organizations, that cost is prohibitive.</p>
-  <p>The second is privacy. Firms in law and healthcare hold client and patient records that they cannot send to a third-party cloud service. For these firms, cloud inference is excluded by obligation rather than by preference, and a dedicated server is excluded by cost. In practice, they go without.</p>
-  <p>The third concerns access and waste. These same offices already own computers with capable GPUs. Most of that capacity sits idle through the working day, and the machines are eventually replaced and discarded. Any one of them is too small to hold a strong model, but together they have enough memory. Oasis treats the hardware an office already owns as a single resource, so the capacity it has already paid for is put to use rather than wasted.</p>
-  <p>Preston will now show the system running and explain how it works.</p>
+<section class="bro" id="problems">
+  <h2>2. The problems</h2>
+  <p class="meta">Aayo's brother · ~45 s</p>
+  <ul>
+    <li><b>Compute is scarce.</b> A model has to fit in GPU memory. A machine big enough costs thousands.</li>
+    <li><b>Data is private.</b> Law and healthcare can't send records to a cloud AI. A server costs too much. So they go without.</li>
+    <li><b>Hardware sits idle.</b> Offices already own capable computers. Each is too small alone; together they have enough memory.</li>
+  </ul>
+  <span class="cue">Hand-off:</span>
+  <ul><li class="say">"Preston will show it running."</li></ul>
 </section>
 
-<section id="demo" class="pres">
-  <h2>3. Live demo and how it works</h2>
-  <div class="meta">Preston · 1:45 to 3:20 · explain it in your own words, don't read it</div>
-
-  <details>
-    <summary>Read this beforehand: how Oasis works, end to end</summary>
-    <p><b>The machines.</b> The M3 Air (16 GB, 192.168.8.113) is main. It runs the SpacetimeDB database called <i>pool</i>, the coordinator, and llama-server, and it is the only machine that holds the model file. The two M5 Airs (24 GB each) are helpers. Each runs our agent, and the agent starts llama.cpp's rpc-server when the database tells it to. The helpers never download the model. Main sends each helper its layers over the cable at load time, and the helper caches them on disk so the next load is faster.</p>
-    <p><b>How the model is split.</b> A language model is a stack of layers, and a token is produced by passing data through every layer in order. llama.cpp splits that stack into contiguous blocks, one per machine, sized to each machine's free GPU memory. For the 26B, main holds about 5.7 GB and each M5 holds about 9.9 GB. To produce one token, main runs its block and sends a small vector of activations to the first helper. That helper runs its block and passes the result to the second helper, and the result returns to main, which picks the next token. Every token therefore visits every machine. Memory adds up across the pool, but speed does not, which is why the pool is wired: each hop on Ethernet takes under a millisecond. The model is also mixture-of-experts, so each token reads only about 4B of its 26B parameters, which is why 12.5 tokens per second is possible on fanless laptops.</p>
-    <p><b>What we built: the control plane.</b> llama.cpp does the math. Everything that decides who does what is ours, written in Rust, and the whole state of the pool lives in SpacetimeDB. SpacetimeDB is a database that also runs our code. Our module defines tables (node, heartbeat, command, split_plan, cluster_status, event, model_request) and reducers, which are the only functions allowed to change those tables. Every client subscribes and sees each change live, so there is no separate server or status API.</p>
-    <p><b>How the pool starts.</b> When an agent starts, it registers. A row appears in <i>node</i> with that machine's GPU memory, and from then on it writes a heartbeat every second. The coordinator watches these tables. Once enough helpers are ready, it computes a split plan in proportion to each machine's memory and writes it to <i>split_plan</i> (state PLANNED). Next it writes a command row for each helper telling it to start its rpc-server (STARTING_HELPERS). Each agent sees its command, starts the server, and reports back that it is listening. The coordinator then launches llama-server pointed at the helpers (LAUNCHING), and once the model has loaded and answers a health check, the state becomes SERVING. The sequence is EMPTY, PLANNED, STARTING_HELPERS, LAUNCHING, SERVING, and the database itself rejects any illegal jump between states. Nobody types commands on the helpers.</p>
-    <p><b>Join, switch, failure.</b> When a new laptop starts its agent, it registers like the others. The pool keeps answering until the new machine is ready, then re-splits across all of them in one model reload. Switching models is one call to the <i>request_model</i> reducer, and the coordinator re-plans for the new model. If a helper disappears (for example, a laptop goes to sleep), llama.cpp aborts. The coordinator sees this, re-plans on the machines that remain and relaunches without anyone intervening.</p>
-    <p><b>The dashboard</b> is one HTML page. Every second it reads the database with SQL and sends chat to llama-server. It only reads, and it never changes the pool's state.</p>
-  </details>
-
-  <span class="cue">Screen: dashboard, pool view. Point at the three machines.</span>
-  <p>Convey that this is one model server made of three laptops. Name the machines and what each holds: main has the model file and coordinates, and the two helpers each hold a block of the model's layers in GPU memory. For example: "Each of these laptops holds part of one model. None of them could hold all of it."</p>
-
-  <span class="cue">Type a question in the chat. Talk while it streams.</span>
-  <p>Explain the path a single token takes: through main's layers, across the cable to the first helper, then the second, and back. Each hop takes under a millisecond. Point at the light packets moving along the wires: "each light is a token crossing from one laptop to the next." Then point at the first-token time and the tokens per second as they appear.</p>
-
-  <span class="cue">Screen: events or the SpacetimeDB tables.</span>
-  <p>This is the part we built, so go into detail here. Walk through how the pool assembled itself: agents registered as rows, heartbeats every second, the coordinator wrote a plan and commands as rows, the agents carried them out, and the state moved from EMPTY to SERVING. Stress two points: no one ran commands by hand on the helpers, and the database refuses invalid state changes. For example: "There is no server in the middle. The database is the cluster. Every machine is a row, every order is a row."</p>
-
-  <span class="cue">Show it working, live. No machine leaves, no agent restarts, no model load in front of a judge.</span>
-  <p>Click "who holds which layers" in the SQL box and point at the heartbeat sequence numbers ticking: the control plane answers live. Ask one more question in the chat if time allows. Then scroll the event history and narrate how the pool assembled itself: registered, planned, commands out, LAUNCHING, SERVING. Mention joining and recovery in words only: a new laptop joins while the pool keeps answering, and if one drops, Oasis re-plans on the rest and answers again in about 30 seconds. Then hand over to Aayo for the numbers.</p>
+<section class="pres" id="demo">
+  <h2>3. Live demo: the database is the point</h2>
+  <p class="meta">Preston · ~2 min · say it in your own words</p>
+  <span class="cue">01 pool: point at the three machines</span>
+  <ul>
+    <li>One model, split across three laptops. Main (M3) holds the file; each M5 holds a block of layers.</li>
+  </ul>
+  <span class="cue">Ask a question in the chat; talk while it streams</span>
+  <ul>
+    <li>Each light on the wires is a token crossing laptops. Under 1 ms per hop.</li>
+    <li>Point at first-token time and tok/s. Don't linger: move to the database.</li>
+  </ul>
+  <span class="cue">02 spacetimedb: spend the most time here</span>
+  <ul>
+    <li>The whole pool lives in SpacetimeDB. Every machine is a row; every order is a row.</li>
+    <li>Agents register, send a heartbeat every second (point at seq ticking).</li>
+    <li>The coordinator writes the plan and commands; agents carry them out; state goes EMPTY → PLANNED → STARTING_HELPERS → LAUNCHING → SERVING.</li>
+    <li>Nobody typed commands on the helpers. The database rejects illegal state changes.</li>
+    <li>Ask a question here: the machines' rows light up as the answer passes through them.</li>
+    <li>Click a preset in "ask the database" (who holds which layers): live answer from the control plane.</li>
+    <li>Say, don't show: a new laptop can join while it keeps answering; if one drops, it re-plans and recovers.</li>
+  </ul>
+  <span class="cue">Hand-off:</span>
+  <ul><li class="say">"Aayo has the numbers."</li></ul>
 </section>
 
-<section id="numbers" class="aayo">
-  <h2>4. Results and close</h2>
-  <div class="meta">Aayo · 3:20 to 4:00</div>
-  <p>All of these measurements were taken on these three machines with no internet connection. Gemma 4 26B occupies 25.0 gibibytes. The largest laptop here can allocate 17.8 to a model, so the model is 1.4 times larger than any single machine. The pool serves it at 12.5 tokens per second, with 0.6 seconds to the first token, and completed 9 of 9 benchmark requests.</p>
-  <p>Pooling also sustains throughput. On the smaller 12B model, one fanless Air falls from about 16 to 8 or 9 tokens per second as it heats up, while the pool holds about 11 for minutes. The round trip between machines is under a millisecond on Ethernet, and the network costs about $140.</p>
-  <p>The computers you already own, one private AI server, offline. Thank you.</p>
+<section class="aayo" id="results">
+  <h2>4. Results</h2>
+  <p class="meta">Aayo · ~30 s · the screen carries it</p>
+  <span class="cue">03 measured, then 04 scale. Point and read the big numbers.</span>
+  <ul>
+    <li class="say">"The computers you already own, one private AI server, offline. Thank you."</li>
+  </ul>
 </section>
 
-<section id="qa" class="qa" style="border-color:#c9d1dc">
-  <h2 style="color:#c9d1dc">Likely questions</h2>
-  <div class="meta">Anyone · one or two sentences each</div>
-  <p><b>Is the pool faster than one machine?</b> For memory, yes, because it runs models that none of the machines can hold alone. Under sustained load, three Airs hold 11 to 12.5 tokens per second while a single Air throttles to 8 or 9. Speculative decoding adds 1.6 to 1.7 times on rewrite tasks (measured on the 12B, one machine).</p>
-  <p><b>Why not Wi-Fi?</b> It works, but every token crosses every machine, so latency accumulates. Ethernet is under a millisecond per hop, and the venue Wi-Fi also blocked traffic between laptops.</p>
-  <p><b>What if a laptop dies?</b> llama.cpp aborts. Our coordinator detects it, then re-plans and relaunches on the remaining machines automatically.</p>
-  <p><b>Why SpacetimeDB?</b> The registry, heartbeats, commands, live status and history are all tables and subscriptions, so there was no server or status API to write, and the database rejects illegal state changes.</p>
-  <p><b>Why Rust?</b> It is one language from the database module (WebAssembly) to the agents. Generated bindings turn a schema mismatch into a compile error, and each machine runs one binary.</p>
-  <p><b>Is this EXO?</b> It shares the idea of pooling devices. Oasis is an offline kit for hardware an office already owns, with SpacetimeDB holding the cluster state. Oasis is the pooling protocol and orchestration, and llama.cpp runs the math.</p>
-  <p><b>Security?</b> The pool sits on its own router with no internet. llama.cpp's RPC has no authentication, so it must stay on a private network. Encrypted links are next.</p>
-  <p><b>How far does it scale?</b> Memory adds up. By our calculation, which we have not run, about eight RTX 3090s would hold DeepSeek V4 Flash at near-native precision.</p>
-  <p class="note">Don't claim: "first to pool laptops", kernel speedups, "$100", or "recovers in seconds".</p>
+<section class="qa" id="qa" style="border-color:#8a93a3">
+  <h2 style="color:#cfd6e0">Likely questions</h2>
+  <p class="meta">Anyone · one sentence each</p>
+  <ul>
+    <li><b>Faster than one machine?</b> It runs models none can hold. Sustained, the pool holds 11-12.5 tok/s; one Air throttles to 8-9.</li>
+    <li><b>Why wired?</b> Every token crosses every machine; Ethernet is under 1 ms per hop. Venue Wi-Fi blocked laptop-to-laptop traffic. It works on any network, slower on Wi-Fi.</li>
+    <li><b>Why SpacetimeDB?</b> Registry, heartbeats, commands, status and history are tables; no server to write, and illegal state changes are rejected.</li>
+    <li><b>Why Rust?</b> One language from the database module (WebAssembly) to the agents; generated bindings make a mismatch a compile error.</li>
+    <li><b>Laptop dies?</b> The coordinator re-plans on the rest and relaunches.</li>
+    <li><b>Is this EXO?</b> Same idea of pooling devices; Oasis is an offline kit for hardware an office already owns, with SpacetimeDB holding the cluster state.</li>
+    <li><b>Those 04 numbers?</b> Model makers' published benchmarks; machine counts are memory math, not runs.</li>
+  </ul>
 </section>
 </main>
 </body>
