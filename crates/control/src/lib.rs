@@ -64,6 +64,8 @@ pub const EVENT_KINDS: &[&str] = &[
     // Added (Aayo 11:20pm Sat): a bring-up that didn't reach SERVING. The cluster goes to STOPPED, not FAILED, so
     // nothing on screen shows a failure; the reason lives here in the event log.
     "launch_failed",
+    // Added (P1, Sun 2am): the dashboard asked for a different model (message = model id). The coordinator acts on it.
+    "model_requested",
 ];
 /// §6.2 rpc_server.state.
 pub const RPC_STATES: &[&str] = &["not_started", "starting", "running", "exited", "failed"];
@@ -297,6 +299,17 @@ pub struct ClusterStatusRow {
     pub updated_at: Timestamp,
     /// Full §6.7 ClusterStatus as contracts JSON ("" until the coordinator writes one).
     pub status_json: String,
+}
+
+/// CONCEPT: the model the operator wants the pool to serve (one row, id = 0). The dashboard writes it with
+///          `request_model`; the coordinator re-plans to that model if it is in its own coordinator.toml [models].
+/// WHY: Preston (Sun 2am): switch the active model between our three from the dashboard.
+#[table(accessor = model_request, public)]
+pub struct ModelRequestRow {
+    #[primary_key]
+    pub id: u8,
+    pub model_id: String,
+    pub requested_at: Timestamp,
 }
 
 // =================================================================================================
@@ -745,6 +758,34 @@ pub fn record_event(
         message,
         data_json,
     });
+    Ok(())
+}
+
+/// CONCEPT: ask the pool to serve another model. Anyone may call it (the dashboard calls it anonymously over the
+///          SpacetimeDB HTTP API): on our private router (R-09) the only effect is a re-plan, and the coordinator
+///          ignores ids that aren't in its own config, so a caller can't point it at an arbitrary file.
+#[reducer]
+pub fn request_model(ctx: &ReducerContext, model_id: String) -> Result<(), String> {
+    let model_id = model_id.trim().to_string();
+    if model_id.is_empty()
+        || model_id.len() > 128
+        || !model_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+    {
+        return Err("E_CONFIG: model id must be 1-128 chars of [A-Za-z0-9._-]".into());
+    }
+    let row = ModelRequestRow {
+        id: 0,
+        model_id: model_id.clone(),
+        requested_at: ctx.timestamp,
+    };
+    if ctx.db.model_request().id().find(0).is_some() {
+        ctx.db.model_request().id().update(row);
+    } else {
+        ctx.db.model_request().insert(row);
+    }
+    log_event(ctx, "model_requested", "", "", model_id);
     Ok(())
 }
 

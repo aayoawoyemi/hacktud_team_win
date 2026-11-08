@@ -54,6 +54,9 @@ pub struct Config {
     /// Address other machines use for llama-server, shown as the endpoint in cluster_status (Ponytail #6).
     /// None: `host`, or main's LAN IP toward the first helper when `host` is a wildcard.
     pub public_host: Option<String>,
+    /// Models the dashboard may switch to: `[models]` id = GGUF path on main (model_id/model_path is the default
+    /// and need not be repeated). Only these ids are honored, so a request can't point the pool at another file.
+    pub models: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for Config {
@@ -76,6 +79,7 @@ impl Default for Config {
             flash_attn: None,
             extra_args: vec![],
             tensor_split: vec![],
+            models: Default::default(),
         }
     }
 }
@@ -96,6 +100,8 @@ pub struct Coordinator {
     /// Joined helpers already sent start_rpc_server, and when that join began (command watermark + clock).
     starting: Vec<String>,
     join: Option<(u64, Instant)>,
+    /// `requested_at` of the last model_request row acted on, so each dashboard request is handled once.
+    model_seen: Option<spacetimedb_sdk::Timestamp>,
 }
 
 impl Coordinator {
@@ -116,6 +122,7 @@ impl Coordinator {
                         "SELECT * FROM heartbeat",
                         "SELECT * FROM command",
                         "SELECT * FROM cluster_status",
+                        "SELECT * FROM model_request",
                     ]);
             })
             .build()
@@ -134,6 +141,7 @@ impl Coordinator {
             skipped: vec![],
             starting: vec![],
             join: None,
+            model_seen: None,
         })
     }
 
@@ -180,8 +188,93 @@ impl Coordinator {
             .collect()
     }
 
+    // ---------------------------------------------------------------------------------------------------------
+    // CONCEPT: model switching (Preston, Sun 2am: switch the active model between our three from the dashboard).
+    //          The dashboard writes model_request (id 0); the coordinator handles each request once. A known id
+    //          different from the current model re-plans the pool with that GGUF; if that load fails, the previous
+    //          model is brought back (Aries 07:50Z). Unknown ids are logged and ignored.
+    // DEPENDS ON: control's model_request table + request_model reducer; Config::models.
+    // AFFECTS: cfg.model_id / cfg.model_path (what bring_up loads), cluster_status.model_id, the event log.
+    // ---------------------------------------------------------------------------------------------------------
+
+    /// Ids the dashboard may pick: the [models] keys plus the default model, sorted.
+    pub fn model_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.cfg.models.keys().cloned().collect();
+        if !self.cfg.model_id.is_empty() && !ids.contains(&self.cfg.model_id) {
+            ids.push(self.cfg.model_id.clone());
+        }
+        ids.sort();
+        ids
+    }
+
+    /// A model_request row this coordinator hasn't handled yet.
+    pub fn model_request_pending(&self) -> bool {
+        self.conn
+            .db
+            .model_request()
+            .id()
+            .find(&0)
+            .is_some_and(|r| Some(r.requested_at) != self.model_seen)
+    }
+
+    /// Takes the newest model request once. Some(id) = a known model other than the current one.
+    fn take_model_request(&mut self) -> Option<String> {
+        let req = self.conn.db.model_request().id().find(&0)?;
+        if Some(req.requested_at) == self.model_seen {
+            return None;
+        }
+        self.model_seen = Some(req.requested_at);
+        if req.model_id == self.cfg.model_id {
+            return None;
+        }
+        if !self.model_ids().contains(&req.model_id) {
+            self.event(
+                "launch_failed",
+                &format!(
+                    "model {:?} is not in coordinator.toml [models]; still serving {}",
+                    req.model_id, self.cfg.model_id
+                ),
+            );
+            return None;
+        }
+        Some(req.model_id)
+    }
+
+    fn use_model(&mut self, id: &str) {
+        if let Some(path) = self.cfg.models.get(id) {
+            self.cfg.model_path = path.clone();
+        }
+        self.cfg.model_id = id.to_string();
+    }
+
+    /// Re-plan the running pool onto model `id`; on failure bring the previous model back.
+    fn switch_model(&mut self, id: &str) -> Result<(), String> {
+        let (old_id, old_path) = (self.cfg.model_id.clone(), self.cfg.model_path.clone());
+        eprintln!("coordinator: switching model {old_id} -> {id}");
+        if let Some(s) = self.server.take() {
+            s.stop(); // both models can't be in memory at once: the downtime is the new model's load time
+        }
+        self.use_model(id);
+        match self.bring_up() {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                self.event(
+                    "launch_failed",
+                    &format!("switch to {id} failed ({e}); restoring {old_id}"),
+                );
+                self.cfg.model_id = old_id;
+                self.cfg.model_path = old_path;
+                self.bring_up()
+            }
+        }
+    }
+
     /// PRD §5.5 steps 2-6: plan, start helpers, launch, wait for /health, SERVING.
     pub fn bring_up(&mut self) -> Result<(), String> {
+        // A model asked for while the pool wasn't serving (or before this coordinator started) is loaded now.
+        if let Some(id) = self.take_model_request() {
+            self.use_model(&id);
+        }
         // Ponytail #2: a coordinator that was killed (or crashed mid-bring-up) leaves the row in SERVING,
         // STARTING_HELPERS, ... and the module only allows PLANNED from EMPTY/STOPPED/FAILED. STOPPED is legal from
         // any state, so reset first; the module also moves ACTIVE nodes back to READY.
@@ -334,6 +427,11 @@ impl Coordinator {
             .map(|n| n.node_id)
             .collect();
         self.skipped.retain(|id| online.contains(id));
+        if self.server.is_some()
+            && let Some(id) = self.take_model_request()
+        {
+            return self.switch_model(&id);
+        }
         // A helper that went LOST leaves the active set, so when its agent comes back it takes the normal join path
         // below and the pool re-plans back to SERVING (#11 07:27Z/07:30Z: before, it stayed DEGRADED forever).
         // Leaving itself still triggers no re-plan (D-14): llama-server keeps serving on the old plan meanwhile.
@@ -504,7 +602,7 @@ impl Coordinator {
                 self.cfg.model_id.clone(),
                 endpoint.into(),
                 active.to_vec(),
-                "{}".into(),
+                serde_json::json!({ "models": self.model_ids() }).to_string(),
                 cb,
             )
             .map_err(|e| e.to_string())?;

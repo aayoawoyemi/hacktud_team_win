@@ -118,6 +118,39 @@ fn ask(port: u16, prompt: &str) -> String {
     text
 }
 
+/// Ask for a model exactly as the dashboard does: an anonymous HTTP call of the request_model reducer.
+fn request_model(id: &str) {
+    let (uri, db) = spacetime();
+    let out = Command::new("curl")
+        .args(["-s", "-o", "/dev/null", "-w", "%{http_code}", "-X", "POST"])
+        .arg(format!("{uri}/v1/database/{db}/call/request_model"))
+        .args(["-H", "Content-Type: application/json", "-d"])
+        .arg(serde_json::json!([id]).to_string())
+        .output()
+        .expect("curl");
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "200", "request_model {id}");
+}
+
+/// Event messages from the db (the coordinator's cache doesn't subscribe to `event`).
+fn event_messages() -> Vec<String> {
+    let (uri, db) = spacetime();
+    let out = Command::new("curl")
+        .args(["-s", "-X", "POST"])
+        .arg(format!("{uri}/v1/database/{db}/sql"))
+        .args(["-d", "SELECT message FROM event"])
+        .output()
+        .expect("curl");
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
+    v[0]["rows"]
+        .as_array()
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|r| r[0].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn wait_until(what: &str, secs: u64, mut ok: impl FnMut() -> bool) {
     let t = Instant::now();
     while !ok() {
@@ -186,6 +219,12 @@ fn full_cycle_two_helpers_then_join() {
         host: "127.0.0.1".into(),
         port,
         log_dir: log_dir.clone(),
+        // Model switching (6c-6e): the same small GGUF under a second id, and an id whose file doesn't exist.
+        models: [
+            ("alt".to_string(), env("MODEL")),
+            ("broken".to_string(), "/nonexistent/broken.gguf".to_string()),
+        ]
+        .into(),
         ..Default::default()
     };
 
@@ -262,6 +301,41 @@ fn full_cycle_two_helpers_then_join() {
     });
     println!("  rejoin re-plan in {:.1} s", t2.elapsed().as_secs_f64());
     assert!(!ask(port, "Name one ocean.").is_empty());
+
+    // Preston (Sun 2am): switch the active model from the dashboard; Aries 07:50Z: a failed load restores the old one.
+    println!("6c. model switch: test-model -> alt");
+    request_model("alt");
+    wait_until("SERVING on alt", 180, || {
+        c.tick().expect("tick");
+        c.cfg.model_id == "alt" && c.cluster_state() == "SERVING"
+    });
+    let row = c.conn.db.cluster_status().iter().next().unwrap();
+    assert_eq!(row.model_id, "alt");
+    assert!(row.status_json.contains("\"broken\""), "{}", row.status_json);
+    assert!(!ask(port, "Name one color.").is_empty());
+
+    println!("6d. switch to a model that can't load -> previous model comes back");
+    request_model("broken");
+    wait_until("restore after failed switch", 180, || {
+        c.tick().expect("tick");
+        event_messages()
+            .iter()
+            .any(|m| m.starts_with("switch to broken failed"))
+            && c.cluster_state() == "SERVING"
+    });
+    assert_eq!(c.cfg.model_id, "alt");
+    assert!(!ask(port, "Name one fruit.").is_empty());
+
+    println!("6e. unknown model id is ignored");
+    request_model("not-configured");
+    wait_until("unknown id logged", 30, || {
+        c.tick().expect("tick");
+        event_messages()
+            .iter()
+            .any(|m| m.contains("\"not-configured\" is not in coordinator.toml"))
+    });
+    assert_eq!(c.cfg.model_id, "alt");
+    assert_eq!(c.cluster_state(), "SERVING");
 
     println!("7. stop");
     c.shutdown().expect("shutdown");
