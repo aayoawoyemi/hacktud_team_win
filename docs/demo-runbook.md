@@ -1,113 +1,109 @@
 <!--
-CONCEPT: the demo runbook (WP-13). Cold start → Part 1 on the pool → a machine joins → Part 2 (bigger than any one
-         machine) → benchmark numbers → clean stop, using the merged Rust tooling (agent, coordinator, bench, netcheck)
-         and SpacetimeDB on main.
-WHY: Checkpoint C = "the full demo runs 3 times in a row from cold, following docs/demo-runbook.md". D-14: the demo
-     shows machines joining, never leaving. D-13: live status comes from SpacetimeDB subscriptions, no frontend.
-DEPENDS ON: docs/network.md (wiring, firewall, IPs, netcheck), docs/runbook-manual.md (PR #26: by-hand fallback and
-     install), crates/{agent,coordinator,bench,netcheck} at main 2c3e491, contracts::defaults (ports, O-26 timings).
-AFFECTS: WP-14 video script follows section 4. Change this file when a command or config key changes.
-STATUS: DRAFT (Agent P2, Sat 9:30pm). Not yet run end to end on the real machines. Lines marked VERIFY are unrun.
+CONCEPT: the demo runbook (WP-13): cold start → 12B on 3 MacBook Airs → switch to the 26B from the dashboard →
+         live join → numbers → clean stop. Everything here was run on the real machines Sat night / Sun morning,
+         except lines marked VERIFY.
+WHY: Checkpoint C = "the full demo runs from cold, following docs/demo-runbook.md". D-14: the demo shows joins.
+     Aayo 7:00am Sun: final scope = B3 + B5 + rehearsal of model switch and live join.
+DEPENDS ON: main ≥ a4cb62f (#49 rejoin, #51 model switch, #52 recovery, #53/#55 stuck rpc-server self-heal),
+     docs/network.md (wiring, firewall), web/oasis-v2.html (dashboard), scripts/bench-night.sh (bench), #11 logs.
+AFFECTS: the video script (WP-14) follows section 4. Change this file when a command, config key or IP changes.
+STATUS: Agent P2, Sun 7:10am CT. Replaces the Sat 9:30pm draft (which assumed the M5 as main and Part 2 unknown).
 -->
 # Demo runbook
 
-Open decisions this file waits on: **Part 2 model** (O-09, Aayo deciding 9:15pm), **what the audience sees** (O-10;
-section 4 assumes two terminals + llama-server's built-in web page), **project name** (O-18).
+## 1. Machines (all wired to the Opal router + switch, 192.168.8.0/24, ~0.7 ms per hop)
 
-## 1. Machines and roles
-
-| Machine | Agent | Role | Runs | GPU budget (MTL0, measured) |
+| IP | Machine | Role | Runs | GPU budget (MTL0) |
 |---|---|---|---|---|
-| M3 MacBook Air 16 GB | P4 | **main** | `spacetime start`, `coordinator`, llama-server (started by the coordinator), `bench`; holds both model files | 12124 MiB |
-| Preston's M5 24 GB | P1/P2 | helper | `agent` (starts rpc-server on command) | 18186 MiB |
-| M5 Air 24 GB | P5 | helper, **the one that joins live** | `agent` | 18186 MiB |
-| Dell (Windows) | Aries | optional helper | `agent` | Vulkan, ~3-7 GiB |
+| 192.168.8.113 | MacBook Air M3, 16 GB | **main** | SpacetimeDB `pool` :3000, `coordinator`, llama-server :8080 (started by the coordinator), holds the GGUFs | 12124 MiB |
+| 192.168.8.174 | MacBook Air M5, 24 GB (Preston) | helper | `agent` (starts rpc-server :50052), dashboard server :8000 | 18186 MiB |
+| 192.168.8.204 | MacBook Air M5, 24 GB (P5) | helper | `agent` | 18186 MiB |
 
-Pool ≈ 47 GiB of GPU budget across the three Macs; the largest single machine has ≈ 17.8 GiB. No `.gguf` on helpers:
-llama-server on main streams their layers over RPC, and `rpc_cache = true` keeps them for the next load.
+Pool ≈ 47 GiB of GPU budget; the biggest single Mac has 17.8 GiB. Models on main (`~/models` or P4's
+`p4-runtime/downloads/`): **Gemma 4 12B Q4_K_M** (7121861440 B, sha256 `0a270ec9…`) and **Gemma 4 26B-A4B Q8_0**
+(26859861728 B, sha256 `5f7cbd0f…`, 25.0 GiB: fits only on the pool). Helpers hold no GGUF; rpc-server `-c` caches
+the layers they receive.
 
-## 2. One-time setup (before the first rehearsal)
+## 2. Rules that cost us hours (read before anything)
 
-1. Wiring, IPs, firewall, service order: docs/network.md sections 2, 4-6. Record wired IPs here:
-   main `________`  M5 `________`  M5 Air `________`  Dell `________`
-2. Every machine: llama.cpp **b8665** official binaries (`llama-server --version` → `8665 (b8635075f)`), Rust 1.99.1,
-   repo at main ≥ 2c3e491.
-3. Build (from the repo root):
-   - main: `cargo build --release -p coordinator -p bench -p netcheck`
-   - helpers: `cargo build --release -p agent -p netcheck`
-4. main only: SpacetimeDB 2.14.1 (`spacetime version install 2.14.1 --use`), wasm32 target (rustup installs it on
-   the first publish), both models in `~/models/` (never in the repo).
-5. Configs (copy the examples, edit, keep outside git or in `~/pool/`):
-   - helper `agent.toml` (from `crates/agent/agent.example.toml`): unique `node_id` (`m5`, `m5-air`, `dell`),
-     `role = "helper"`, `spacetime_uri = "http://<main IP>:3000"`, `llama_bin_dir`, `rpc_bind = "0.0.0.0"`,
-     `rpc_cache = true`.
-   - main `part1.toml` and `part2.toml` (from `crates/coordinator/coordinator.example.toml`):
-     `spacetime_uri = "http://127.0.0.1:3000"`, `llama_server_path`, `model_path`, `model_id`, `ctx_size = 4096`,
-     `host = "0.0.0.0"`, `port = 8080`, `ready_timeout_s = 300`.
-   - main `bench-part1.toml` / `bench-part2.toml` (from `crates/bench/bench.example.toml`): `endpoint =
-     "http://127.0.0.1:8080"`, `scenario`, `model_id`, `nodes`, `size_ratio`.
-6. Pre-warm the helper caches once (a full Part 1 and Part 2 load). After that a reload skips most network transfer.
+1. **Start every pool program from Terminal.app, never from inside Codex.** macOS Local Network privacy blocks LAN
+   connections from binaries launched by an app without the permission (`errno 65 No route to host`,
+   Network.framework `localNetworkDenied`) while `/usr/bin/nc` still works. P4 uses a small launcher app; Terminal
+   works too. System Settings > Privacy & Security > Local Network: Terminal ON.
+2. **`caffeinate -dims &` on all three Macs, lids open, power in.** A sleeping helper kills the pool (llama.cpp
+   aborts when an RPC peer vanishes); .204 slept at 2:35am and the pool stayed down for 4 h.
+3. **Stop the coordinator with Enter**, not Ctrl-C or `kill` (Enter stops llama-server and the helpers' rpc-servers).
+4. **Don't start rpc-server by hand on a helper.** The agent owns it. A hand-started one blocks the agent's
+   (`E_PORT_IN_USE`); the coordinator now recovers from that once (#53), but don't rely on it on stage.
+5. **Never `--delete-data` on publish.** Republishing `pool` keeps the data (#33).
 
-## 3. Cold start (T-15 min). Every step has a check; don't continue past a failed check.
-
-All Macs: plugged in, Low Power Mode off, other apps quit, `caffeinate -dims &` in a spare terminal.
+## 3. Cold start (T-20 min). Don't continue past a failed check.
 
 | # | Where | Command | Check |
 |---|---|---|---|
-| 1 | main | `spacetime start` (leave running) | log says listening on `0.0.0.0:3000` |
-| 2 | main | `spacetime publish -s local -p crates/control pool -y` (only if the DB is new; republishing an existing DB keeps its data, VERIFY) | `spacetime sql -s local pool "SELECT cluster_state FROM cluster_status"` prints one row |
-| 3 | each helper | `target/release/netcheck check main=<main IP>:3000` | `ok` from every helper |
-| 4 | main | `target/release/coordinator part1.toml` (leave running) | prints `coordinator identity <hex>` and the `add_admin` command, then `waiting for helpers...` |
-| 5 | main, 2nd terminal | paste the printed `spacetime call -s local pool add_admin '"0x<hex>"'` (first run only; the identity is saved, VERIFY) | no error |
-| 6 | main, 3rd terminal (audience status) | `spacetime subscribe -s local pool "SELECT node_id, role, state, online FROM node" "SELECT cluster_state, model_id, endpoint FROM cluster_status"` (VERIFY multi-query syntax) | live rows |
+| 1 | all 3 | `caffeinate -dims &` (Terminal) | prints `[1] <pid>` |
+| 2 | main | `spacetimedb-cli start -l 0.0.0.0:3000` (leave open) | `curl -s -o /dev/null -w '%{http_code}' http://192.168.8.113:3000/v1/ping` → `200` from a helper |
+| 3 | main | `spacetimedb-cli publish -s local -p crates/control pool -y` (or `--bin-path control.wasm` if main has no cargo) | `spacetimedb-cli sql -s local pool "SELECT cluster_state FROM cluster_status"` prints a row |
+| 4 | each helper | `target/release/netcheck check main=192.168.8.113:3000` | `ok` |
+| 5 | each helper | `target/release/agent agent.toml` (Terminal, leave open) | `SELECT node_id, state, online FROM node` shows it `READY`/`REGISTERED`, online |
+| 6 | main | `SPACETIME_TOKEN=<publisher token> target/release/coordinator coordinator.toml` (Terminal or P4's launcher app) | `SERVING on 8080: [...]` in ~35 s (12B, warm caches) |
+| 7 | any Mac | from the repo root: `python3 -m http.server 8000` | the dashboard URL below loads |
 
-**Do not start P5's agent yet**: it is the join in section 4.
+**Configs:**
+- helper `agent.toml`: `node_id` (`m5-air-174` / `p5-air-204`), `role = "helper"`,
+  `spacetime_uri = "http://192.168.8.113:3000"`, `spacetime_db = "pool"`, `rpc_bind = "0.0.0.0"`, `rpc_cache = true`.
+- main `coordinator.toml` (from `crates/coordinator/coordinator.example.toml`): `spacetime_uri =
+  "http://127.0.0.1:3000"`, `model_id`/`model_path` = the 12B, `public_host = "192.168.8.113"`, `min_helpers = 2`,
+  `ready_timeout_s = 900` (the 26B cold load took 303 s), and a `[models]` table with the 12B and 26B ids → paths.
+  First run prints an `add_admin` command: run it once.
 
-## 4. The demo (≤ 2 min on video; live can be longer)
+**Dashboard:** `http://192.168.8.174:8000/web/oasis-v2.html?stdb=http://192.168.8.113:3000&llama=http://192.168.8.113:8080`
+(or the IP of whichever Mac serves :8000). Live mode: topology, events, chat with "computed on N machines", model select.
 
-1. **"Two laptops become one AI server."** On the M5: `target/release/agent agent.toml`.
-   Status terminal: `m5` appears REGISTERED → READY. Coordinator: plans, starts the M5's rpc-server, launches
-   llama-server over main + M5 → `SERVING`. Part 1 (Gemma 4 12B) answers: open `http://<main IP>:8080` (llama-server's
-   built-in chat page) on a phone or the projector and ask a demo prompt from `prompts/bench.toml` (`use = "demo"`).
-2. **"A third laptop joins."** On the M5 Air: `target/release/agent agent.toml`. Status: `m5-air` appears; the
-   coordinator re-plans (`re-planned, SERVING with [...]`, ~2.5 s on the M5 test plus model reload time). Ask again.
-3. **"Now a model none of these laptops can hold."** Coordinator terminal: press **Enter** (clean stop: helpers'
-   rpc-servers stop, cluster → STOPPED). Then `target/release/coordinator part2.toml`. Agents stay up; it brings up
-   Part 2 over all three Macs (cold load can take minutes; pre-warmed caches make it faster). Ask the demo prompt.
-   Say the honest ratio: Part 2 size ÷ largest single machine's budget (≈ 1.4-1.7x with the candidates in #11),
-   and that the internet is off (router WAN unplugged, D-02).
-4. **Numbers** (pre-recorded is fine for the video): `target/release/bench bench-part2.toml` → markdown table with
-   TTFT and tokens/s; compare with `single_fit` on one machine (section 5).
+**Pre-warm before recording:** switch to the 26B once and back (section 4.2), so the helpers' `-c` caches hold its
+layers. VERIFY how much a warm switch saves (cold 12B → 26B = 303 s).
 
-## 5. Benchmarks for the write-up
+## 4. The demo (≤ 2 min on video)
 
-Run each with 1 warm-up + 3 repeats (the defaults); keep the `.md` files for docs/findings.md and Devpost.
+1. **"Three laptops, one AI."** Dashboard: three nodes connected, SERVING, Gemma 12B. Ask in the chat; the answer
+   ends with `computed on 3 machines: m3-air-113 + m5-air-174 + p5-air-204` and its tok/s (~11).
+2. **"A model none of them can hold."** Model select → `gemma-4-26B-A4B-it-Q8_0`. Status: `switching to … (launching)`
+   → `now serving …`. Ask again. Say the honest ratio: 25.0 GiB model, biggest Mac holds 17.8 GiB (1.4x), and the
+   internet is off (router WAN unplugged, D-02). The load is minutes cold: cut it in the video, or pre-warm.
+3. **"A laptop joins."** On .174: Ctrl-C its agent (the pool keeps serving on the other two; #52), then start it
+   again → the coordinator re-plans to 3 → SERVING (#49). VERIFY timings (P1 rehearsal, Sun ~7:30am).
+4. **Numbers** (pre-recorded): section 5.
 
-| Scenario | Pool | Model | Config |
-|---|---|---|---|
-| `single_fit` | main only: `llama-server -m <part1> -ngl 99 --port 8080` by hand | Part 1 | `bench-single.toml` |
-| `split_2` | coordinator part1 + M5 | Part 1 | `bench-part1.toml`, `scenario = "split_2"` |
-| `pool_part1` | coordinator part1 + M5 + M5 Air | Part 1 | `scenario = "pool_part1"` |
-| `pool_part2` | coordinator part2 + both helpers | Part 2 | `bench-part2.toml` |
+## 5. Numbers we can quote (all `bench`, thinking off, warmup 1 + 3 repeats; files in `test-runs/bench/`)
 
-The Air is fanless: never measure on its first run (warm-ups exist for this) and note throttling if tokens/s drifts.
+| What | Result | Source |
+|---|---|---|
+| 12B, one M5 Air alone | ~16 tok/s cold, **~8-9 tok/s sustained** (fanless; throttles after ~1.5 min) | night-20261108-0408 |
+| 12B, 3-Mac pool (FA + q8 KV) | **~11 tok/s, flat over 5.5 min** (TTFT 0.6-0.7 s short/long) | p4-20261108-0150-existing-fa-q8 (#54) |
+| ngram speculative decoding, rewrite task, one Air | **1.6-1.7x** (edit: 7.2 → 12.4, 9 → 14.5 tok/s; 79% draft acceptance); no gain on new text | night-20261108-0329 / -0408 |
+| 26B on the 3-Mac pool (B3) | loads + serves on b8665 (cold 303 s); tok/s/TTFT: **P4 posting** | #11 |
+| 26B + ngram (B5) | quote only if faster than B3 | #11 |
 
-## 6. Stop and reset (between rehearsals)
+Honest framing: cold, one Air is faster on the 12B; sustained, three Airs beat one throttled Air (~11 vs 8-9), with
+the caveat that the pool's main was the M3 and had FA + q8 KV on. The 26B is the point: no single Mac can hold it.
 
-1. Coordinator: **Enter** (not Ctrl-C: Ctrl-C skips stopping the helpers' rpc-servers).
-2. Each helper agent: Ctrl-C (it stops rpc-server first; no process left: `pgrep rpc-server` prints nothing).
-3. Leave `spacetime start` running between rehearsals. For a fully cold run, stop it too.
+## 6. Stop and reset
+
+1. Coordinator: **Enter**. 2. Each agent: Ctrl-C (stops its rpc-server first; `pgrep rpc-server` prints nothing).
+3. Leave SpacetimeDB running between takes. For a fully cold run, stop it too.
 
 ## 7. When something fails
 
-| Symptom | Likely cause | Fix |
+| Symptom | Cause | Fix |
 |---|---|---|
-| helper never appears in `node` | wrong `spacetime_uri`, firewall on main:3000, Wi-Fi/LAN mix-up | `netcheck check main=<main IP>:3000` from the helper; docs/network.md §6 |
-| coordinator stuck before SERVING, then `E_NOT_READY_TIMEOUT` | cold Part 2 load slower than 300 s | pre-warm caches; raise `ready_timeout_s` in the config |
-| `E_RPC_UNREACHABLE` | rpc-server bound to loopback or blocked | `rpc_bind = "0.0.0.0"`; macOS firewall prompt for rpc-server; `netcheck check h=<IP>:50052` from main |
-| llama-server exits during load or a request | a helper dropped (llama.cpp aborts on a lost RPC peer) | out of demo scope (D-14): stop, restart the agent, start the coordinator again |
-| `node_id ... owned by another identity` | agent token mismatch after a reinstall | the agent saves a token per node_id; use a new `node_id` or restore its token file |
-| main runs out of memory on Part 2 | the 16 GB Air maps the whole Part 2 file while streaming helpers' layers (VERIFY on the first Part 2 load) | quit other apps; if it still fails, pick the smaller Part 2 candidate |
+| `E_RPC_UNREACHABLE` / errno 65 while `nc` works | Local Network permission (rule 1) | run from Terminal; toggle Terminal in Local Network, Cmd-Q, reopen |
+| llama-server `Remote RPC server crashed`, `recv failed (bytes_recv=0)` at start | helper's rpc-server still held by a dead client (its Mac slept through the last crash) | coordinator ≥ #53 restarts it through the agent; by hand: Ctrl-C + restart that agent |
+| pool down, helper `LOST`, `ping` says "Host is down" | helper asleep | wake it, `caffeinate -dims &`, restart its agent (rule 2) |
+| chat answer blank | Gemma 4 thinks first; small max_tokens | dashboard sends `enable_thinking: false` (#47); keep it |
+| a stale model loads after a coordinator restart | old `model_request` row | fixed in #51 review (requests before start are ignored); VERIFY on main |
+| `E_PORT_IN_USE` on a helper | hand-started rpc-server (rule 4) | stop it; the agent starts its own |
+| 26B launch times out | cold load > `ready_timeout_s` | `ready_timeout_s = 900`, pre-warm |
 
-**Fallback if the tooling fails on stage:** the by-hand path in docs/runbook-manual.md (rpc-server on helpers,
-`llama-server --rpc ...` on main) gives the same answer without SpacetimeDB.
+**Fallback if the tooling fails on stage:** by hand, as in run-002 (`test-runs/`): `rpc-server -H 0.0.0.0 -p 50052
+-d MTL0 -c` on each helper (Terminal), then on main `llama-server -m <gguf> --rpc 192.168.8.174:50052,192.168.8.204:50052
+-ngl 99 -c 4096 --host 0.0.0.0 --port 8080`. Same answer, no SpacetimeDB. The dashboard's `?direct` mode shows it.
