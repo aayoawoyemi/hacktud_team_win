@@ -1,0 +1,43 @@
+{
+  "plan_id": "example-plan",
+  "created_at": "2026-11-08T01:45:00Z",
+  "strategy": "proportional_usable",
+  "ctx_size": 4096,
+  "parallel": 1,
+  "kv_bytes_per_token_override": null,
+  "main_cpu_available_bytes": null,
+  "devices": [
+    {
+      "node_id": "helper-example",
+      "device": "MTL0",
+      "llama_device": "RPC0",
+      "is_main": false,
+      "measured_bytes_per_second": null,
+      "memory": {
+        "name": "helper-example",
+        "memory_pool_id": "helper-example-unified",
+        "unified_memory": true,
+        "free_bytes": 12000000000,
+        "device_limit_bytes": 12000000000,
+        "reserve_bytes": 1000000000,
+        "compute_buffer_bytes": 500000000
+      }
+    },
+    {
+      "node_id": "main-example",
+      "device": "MTL0",
+      "llama_device": "MTL0",
+      "is_main": true,
+      "measured_bytes_per_second": null,
+      "memory": {
+        "name": "main-example",
+        "memory_pool_id": "main-example-unified",
+        "unified_memory": true,
+        "free_bytes": 8000000000,
+        "device_limit_bytes": 8000000000,
+        "reserve_bytes": 1000000000,
+        "compute_buffer_bytes": 500000000
+      }
+    }
+  ]
+}
