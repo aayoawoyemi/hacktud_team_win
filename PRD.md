@@ -148,6 +148,9 @@ Kickoff must settle: O-01, O-02, O-03, O-04, O-06, O-14, O-16, O-17, O-19, O-24,
 
 | ID | Decision | Who | When |
 |---|---|---|---|
+| D-15 | Part 2 model = unsloth `gemma-4-26B-A4B-it-Q8_0.gguf` (25.02 GiB; MoE, ~4B active per token). 1.4x the largest machine (17.8 GiB usable). Only main needs the file (llama-server streams layers to helpers). Fallback if b8665 can't load it: `gemma-4-31B-it-Q6_K.gguf` (23.47 GiB). Honest speedup target ~1.5-2x, not 3x (D-07) | Aayo | Sat 9:15pm |
+| D-16 | Pool = the 3 Macs, all wired (Opal GL-SFT1200 router, 5-port gigabit switch, 3 USB-C gigabit adapters). The Dell (XPS 15 9510, no RJ45) is not in the pool; it can run the bench client / status view over Wi-Fi | Aayo | Sat 9:15pm |
+| O-26b | ready_timeout_s raised to 300 (cold Part 2 load streams ~15-20 GB to helpers; models are preloaded before the demo) | Aayo | Sat 9:08pm |
 | O-26 | Timings: agent heartbeat every 1000 ms; node LOST after 6000 ms without one; coordinator waits up to 120 s for llama-server `/health`. In `contracts::defaults`; TOML may override (O-24) | Aayo | Sat 7:55pm |
 | O-27 | SpacetimeDB database name on main is `pool` (`spacetime publish -s local -p crates/control pool -y`); tests use `pool-smoke` | Aayo | Sat 7:55pm |
 | O-17b | Ports: SpacetimeDB 3000 (standalone default, 0.0.0.0), rpc-server 50052, llama-server 8080, netcheck 50060 | Aayo | Sat 7:55pm |
