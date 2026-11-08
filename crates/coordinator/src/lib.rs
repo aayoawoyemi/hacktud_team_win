@@ -1,7 +1,12 @@
-//! CONCEPT: coordinator crate (WP-4 (+ WP-7 status in src/status/, WP-9 recovery in src/recovery/)). Registry of nodes, launcher of llama-server on main, owner of the cluster state machine (PRD §5.6).
-//! WHY: empty skeleton from WP-12 R12.1 so every work package starts from a workspace that already builds;
-//!      the main machine (O-06: a Mac) needs one process that turns registered nodes plus a SplitPlan into a running llama-server.
-//! DEPENDS ON: contracts, planner (SplitPlan).
-//! AFFECTS: agent (sends it Commands), bench (reads ClusterStatus), the O-10 display.
+//! CONCEPT: coordinator crate (WP-4; WP-7 status will live in src/status/, WP-9 recovery in src/recovery/). The main
+//!          Mac's control process: turns registered nodes plus a SplitPlan into a running llama-server (PRD §5.5).
+//! WHY: O-06 (main is a Mac) needs one process that owns the llama-server lifecycle. Under D-13 the registry, commands
+//!      and events live in SpacetimeDB tables; this crate does the local work SpacetimeDB modules can't (start
+//!      processes, reach the LAN).
+//! DEPENDS ON: contracts (PR #18) and the SpacetimeDB module `crates/control` (not merged yet); planner (PR #20).
+//! AFFECTS: agent (receives commands), bench (needs the endpoint), the O-10 display.
 //!
-//! Empty on purpose. The owning work package fills it in on its own branch.
+//! Built in slices. Slice 1 (this): launch.rs, the llama-server lifecycle, with no dependency on unmerged PRs.
+//! Next: subscribe to SpacetimeDB, send start_rpc_server commands, take the SplitPlan from the planner.
+
+pub mod launch;
