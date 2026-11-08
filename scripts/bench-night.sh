@@ -44,7 +44,13 @@ LOG="$NIGHT/night.log"
 SUMMARY="$NIGHT/SUMMARY.md"
 LPID=""
 
+port_busy() { lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; }
 log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; }
+
+# Refuse to start on top of a live server: a running coordinator would relaunch llama-server and fight this script.
+if port_busy; then
+  echo "ABORT: something already listens on :$PORT. Stop the running coordinator and llama-server first."; exit 1
+fi
 
 # Keep this Mac awake for as long as the script runs.
 caffeinate -dimsu -w $$ >/dev/null 2>&1 &
@@ -59,7 +65,6 @@ size_of() { stat -f %z "$1" 2>/dev/null || echo 0; }
 
 http_code() { curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$1" 2>/dev/null || echo 000; }
 
-port_busy() { lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; }
 
 stop_all() {
   if [ -n "$LPID" ]; then kill "$LPID" 2>/dev/null; fi
