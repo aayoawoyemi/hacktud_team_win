@@ -20,3 +20,6 @@ models/
 
 # WP-8 bench output (commit only curated summaries, under docs/)
 bench-out/
+
+# Night bench config on main (holds the SpacetimeDB token)
+scripts/bench-night.env
