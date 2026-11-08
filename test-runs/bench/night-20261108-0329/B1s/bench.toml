@@ -1,0 +1,12 @@
+endpoint = "http://127.0.0.1:8080"
+prompts_file = "/Users/preston/Documents/code/hackathon/hacktud_team_win-wt/bench-night/prompts/bench.toml"
+output_dir = "/Users/preston/Documents/code/hackathon/hacktud_team_win-wt/bench-night/test-runs/bench/night-20261108-0329/B1s/bench-out"
+scenario = "single_fit"
+model_id = "gemma-4-12b-it-q4_k_m"
+plan_id = "B1s"
+nodes = ["m5-air-174"]
+ctx_size = 4096
+prompt_use = "bench"
+warmup = 1
+repeats = 3
+timeout_s = 600
