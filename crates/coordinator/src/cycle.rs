@@ -344,8 +344,12 @@ impl Coordinator {
 
         // 3. Start rpc-server on every helper that isn't already serving.
         self.set_state("STARTING_HELPERS", &[], "")?;
+        // Helpers whose rpc-server THIS bring-up starts (or restarts below). A fresh process can't be held by a dead
+        // client, so the stuck check further down skips them (see stuck_helpers).
+        let mut fresh: std::collections::HashSet<String> = Default::default();
         for n in &helpers {
             if self.rpc_addr(n).is_none() {
+                fresh.insert(n.node_id.clone());
                 let (cb, rx) = done();
                 self.conn
                     .reducers
@@ -380,6 +384,7 @@ impl Coordinator {
                             &format!("{}: port held by an rpc-server from a previous agent; restarting it", n.node_id),
                         );
                         restarted.insert(n.node_id.clone(), self.max_command_id());
+                        fresh.insert(n.node_id.clone());
                         for (kind, args) in [
                             ("stop_rpc_server", "{}".to_string()),
                             ("start_rpc_server", start_args(&n)),
@@ -423,14 +428,10 @@ impl Coordinator {
         // Self-heal (Aries 10:48Z): none of our llama-servers is connected now, so every healthy rpc-server answers
         // an RPC hello. One that doesn't is held by a dead client and would abort llama-server at the handshake.
         // Restart those through their agents (rpc-server -c keeps the tensor cache), once; skip any still stuck.
-        let wedged: Vec<String> = helpers
-            .iter()
-            .zip(&rpc)
-            // 3 tries (~6 s worst case): right after a re-plan stops the old llama-server, a healthy rpc-server may
-            // still be closing that session for a moment, and a needless restart reloads the helper's weights.
-            .filter(|(_, a)| !(0..3).any(|_| launch::rpc_hello(a)))
-            .map(|(n, _)| n.node_id.clone())
-            .collect();
+        let ids: Vec<String> = helpers.iter().map(|n| n.node_id.clone()).collect();
+        // 3 tries (~6 s worst case): right after a re-plan stops the old llama-server, a healthy rpc-server may
+        // still be closing that session for a moment, and a needless restart reloads the helper's weights.
+        let wedged = stuck_helpers(&ids, &rpc, &fresh, |a| (0..3).any(|_| launch::rpc_hello(a)));
         let (helpers, rpc) = if wedged.is_empty() {
             (helpers, rpc)
         } else {
@@ -887,4 +888,47 @@ fn done() -> (
 fn wait(rx: mpsc::Receiver<Result<(), String>>) -> Result<(), String> {
     rx.recv_timeout(Duration::from_secs(10))
         .map_err(|_| "E_TRANSPORT: no reducer reply in 10 s".to_string())?
+}
+
+/// CONCEPT: which helpers' rpc-servers are held by a dead client, from the launch-time RPC hello.
+/// WHY: #53 false positive (P1, Sun 6:43am, event 28): both rpc-servers had just been started by their agents and
+///      didn't answer the hello in 3 x 2 s over the LAN (a fresh rpc-server's first client likely waits for Metal init),
+///      so the coordinator restarted two healthy helpers. A dead client can only hold a process that was ALREADY
+///      running before this bring-up, so helpers started (or restarted) by this bring-up are never probed.
+/// DEPENDS ON: `ids` and `rpc` in the same order (one rpc address per helper); `answers` = the hello probe.
+/// AFFECTS: which helpers bring_up sends through unwedge (stop + start).
+fn stuck_helpers(
+    ids: &[String],
+    rpc: &[String],
+    fresh: &std::collections::HashSet<String>,
+    answers: impl Fn(&str) -> bool,
+) -> Vec<String> {
+    ids.iter()
+        .zip(rpc)
+        .filter(|(id, a)| !fresh.contains(*id) && !answers(a))
+        .map(|(id, _)| id.clone())
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stuck_helpers;
+    use std::collections::HashSet;
+
+    #[test]
+    fn fresh_helpers_are_never_probed_old_silent_ones_are_stuck() {
+        let ids: Vec<String> = ["a", "b", "c"].map(String::from).to_vec();
+        let rpc: Vec<String> = ["a:1", "b:1", "c:1"].map(String::from).to_vec();
+        let fresh: HashSet<String> = ["b".to_string()].into();
+        let probed = std::cell::RefCell::new(Vec::new());
+        // Nobody answers: only the helpers that were already running (a, c) count as stuck; b is never probed.
+        let stuck = stuck_helpers(&ids, &rpc, &fresh, |a| {
+            probed.borrow_mut().push(a.to_string());
+            false
+        });
+        assert_eq!(stuck, ["a", "c"]);
+        assert_eq!(*probed.borrow(), ["a:1", "c:1"]);
+        // Everyone answers: nothing stuck.
+        assert!(stuck_helpers(&ids, &rpc, &HashSet::new(), |_| true).is_empty());
+    }
 }
