@@ -275,7 +275,12 @@ checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
 name = "coordinator"
 version = "0.1.0"
 dependencies = [
+ "contracts",
+ "serde",
+ "serde_json",
+ "spacetimedb-sdk",
  "thiserror 2.0.21",
+ "toml",
 ]
 
 [[package]]
