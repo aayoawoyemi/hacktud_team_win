@@ -764,6 +764,9 @@ pub fn record_event(
 /// CONCEPT: ask the pool to serve another model. Anyone may call it (the dashboard calls it anonymously over the
 ///          SpacetimeDB HTTP API): on our private router (R-09) the only effect is a re-plan, and the coordinator
 ///          ignores ids that aren't in its own config, so a caller can't point it at an arbitrary file.
+/// Minimum gap between two accepted `request_model` calls (Aries #51 review: ~30 s).
+pub const MODEL_REQUEST_COOLDOWN_S: i64 = 30;
+
 #[reducer]
 pub fn request_model(ctx: &ReducerContext, model_id: String) -> Result<(), String> {
     let model_id = model_id.trim().to_string();
@@ -775,12 +778,25 @@ pub fn request_model(ctx: &ReducerContext, model_id: String) -> Result<(), Strin
     {
         return Err("E_CONFIG: model id must be 1-128 chars of [A-Za-z0-9._-]".into());
     }
+    // Aries #51 review item 3: each switch reloads the pool (minutes for the 26B) and logs an event, so one looping
+    // client could keep the pool down and grow the event table. One request per cooldown, for everyone.
+    let prev = ctx.db.model_request().id().find(0);
+    if let Some(p) = &prev {
+        let waited_us =
+            ctx.timestamp.to_micros_since_unix_epoch() - p.requested_at.to_micros_since_unix_epoch();
+        if waited_us < MODEL_REQUEST_COOLDOWN_S * 1_000_000 {
+            return Err(format!(
+                "E_CONFIG: one model switch per {MODEL_REQUEST_COOLDOWN_S} s; try again in {} s",
+                MODEL_REQUEST_COOLDOWN_S - waited_us / 1_000_000
+            ));
+        }
+    }
     let row = ModelRequestRow {
         id: 0,
         model_id: model_id.clone(),
         requested_at: ctx.timestamp,
     };
-    if ctx.db.model_request().id().find(0).is_some() {
+    if prev.is_some() {
         ctx.db.model_request().id().update(row);
     } else {
         ctx.db.model_request().insert(row);

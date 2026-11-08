@@ -24,6 +24,13 @@ async function until(what, expr, secs = 120) {
   throw new Error(`timed out: ${what}`);
 }
 const results = [];
+let lastSwitch = 0;                        // the control module allows one model switch per 30 s
+async function pick(id) {
+  const wait = lastSwitch + 31000 - Date.now();
+  if (wait > 0) await sleep(wait);
+  await js(`{ const s = document.getElementById('model-select'); s.value = '${id}'; s.dispatchEvent(new Event('change')); } true`);
+  lastSwitch = Date.now();
+}
 const check = (name, ok, detail = '') => { results.push(`${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' :: ' + detail : ''}`); };
 await new Promise(r => ws.onopen = r);
 await send('Runtime.enable');
@@ -42,7 +49,7 @@ await until('chat answer', `!!document.querySelector('.chat-bot .chat-meta')`, 6
 check('chat answered', true, await js(`document.querySelector('.chat-bot p').textContent + ' | ' + document.querySelector('.chat-bot .chat-meta').textContent`));
 
 // 3. switch model from the select
-await js(`{ const s = document.getElementById('model-select'); s.value = 'qwen-alt'; s.dispatchEvent(new Event('change')); } true`);
+await pick('qwen-alt');
 await until('switch starts', `document.getElementById('model-select').disabled`, 10);
 check('dock shows switching', true, await js(`document.getElementById('dock-model').textContent`));
 await until('switch settles', `!document.getElementById('model-select').disabled && document.getElementById('dock-model').textContent === 'qwen-alt'`, 180);
@@ -51,17 +58,20 @@ await js(`document.getElementById('chat-input').value = 'Name one color.'; docum
 await until('chat answer 2', `document.querySelectorAll('.chat-bot .chat-meta').length === 2`, 60);
 check('chat after switch', true, await js(`[...document.querySelectorAll('.chat-bot p')].at(-1).textContent`));
 
-// 4. a model that can't load: the old one comes back, dock says so
-await sleep(1500);
+// 3b. a second switch right away hits the cooldown: refused with the reducer's message, select stays usable
 await js(`{ const s = document.getElementById('model-select'); s.value = 'broken'; s.dispatchEvent(new Event('change')); } true`);
+await sleep(1500);
+check('too-fast switch refused with cooldown message', await js(`document.getElementById('command-response').textContent.includes('one model switch per') && !document.getElementById('model-select').disabled`), await js(`document.getElementById('command-response').textContent`));
+
+// 4. a model that can't load: the old one comes back, dock says so
+await pick('broken');
 await until('broken switch starts', `document.getElementById('model-select').disabled`, 10);
 await until('broken switch settles', `!document.getElementById('model-select').disabled`, 180);
 check('restored qwen-alt after failed load', await js(`document.getElementById('dock-model').textContent === 'qwen-alt' && document.getElementById('model-select').value === 'qwen-alt'`), await js(`document.getElementById('event-log').textContent.slice(-200)`));
 
 // 4b. back to the default model from the select (it must still be listed)
-await sleep(1500);
 check('default still listed', await js(`[...document.getElementById('model-select').options].some(o => o.value === 'qwen-0.5b')`));
-await js(`{ const s = document.getElementById('model-select'); s.value = 'qwen-0.5b'; s.dispatchEvent(new Event('change')); } true`);
+await pick('qwen-0.5b');
 await until('back-switch starts', `document.getElementById('model-select').disabled`, 10);
 await until('back-switch settles', `!document.getElementById('model-select').disabled && document.getElementById('dock-model').textContent === 'qwen-0.5b'`, 180);
 check('serving qwen-0.5b again', true);

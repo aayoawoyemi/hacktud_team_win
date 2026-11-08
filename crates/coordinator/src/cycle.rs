@@ -134,6 +134,9 @@ impl Coordinator {
             .map_err(|_| "E_TRANSPORT: subscription not applied in 10 s".to_string())?;
         let cluster = conn.db.cluster_status().iter().next();
         let cfg_model = (cfg.model_id.clone(), cfg.model_path.clone());
+        // Aries/P2 #51 review item 2: a model_request row left from an earlier session must not override this
+        // coordinator's config at start, so only requests made after connecting count.
+        let model_seen = conn.db.model_request().id().find(&0).map(|r| r.requested_at);
         Ok(Self {
             cfg,
             conn,
@@ -144,7 +147,7 @@ impl Coordinator {
             skipped: vec![],
             starting: vec![],
             join: None,
-            model_seen: None,
+            model_seen,
             default_model: (cfg_model.0, cfg_model.1),
         })
     }
@@ -253,15 +256,19 @@ impl Coordinator {
         self.cfg.model_id = id.to_string();
     }
 
-    /// Re-plan the running pool onto model `id`; on failure bring the previous model back.
+    /// Re-plan onto model `id` (serving or not); on failure bring the previous model back. The restore calls
+    /// `launch` directly, so a newer request can't slip in without its own restore (#51 review item 6).
     fn switch_model(&mut self, id: &str) -> Result<(), String> {
         let (old_id, old_path) = (self.cfg.model_id.clone(), self.cfg.model_path.clone());
         eprintln!("coordinator: switching model {old_id} -> {id}");
         if let Some(s) = self.server.take() {
             s.stop(); // both models can't be in memory at once: the downtime is the new model's load time
         }
+        // A join in flight is superseded: launch() re-plans with every online helper anyway (#51 review item 6).
+        self.join = None;
+        self.starting.clear();
         self.use_model(id);
-        match self.bring_up() {
+        match self.launch() {
             Ok(()) => Ok(()),
             Err(e) => {
                 self.event(
@@ -270,17 +277,22 @@ impl Coordinator {
                 );
                 self.cfg.model_id = old_id;
                 self.cfg.model_path = old_path;
-                self.bring_up()
+                self.launch()
             }
         }
     }
 
-    /// PRD §5.5 steps 2-6: plan, start helpers, launch, wait for /health, SERVING.
+    /// Bring the pool up. A model request made while it wasn't serving goes through `switch_model`, so a model
+    /// that fails to load gives way to the previous one instead of being retried forever (#51 review item 5).
     pub fn bring_up(&mut self) -> Result<(), String> {
-        // A model asked for while the pool wasn't serving (or before this coordinator started) is loaded now.
-        if let Some(id) = self.take_model_request() {
-            self.use_model(&id);
+        match self.take_model_request() {
+            Some(id) => self.switch_model(&id),
+            None => self.launch(),
         }
+    }
+
+    /// PRD §5.5 steps 2-6: plan, start helpers, launch, wait for /health, SERVING (the configured model).
+    fn launch(&mut self) -> Result<(), String> {
         // Ponytail #2: a coordinator that was killed (or crashed mid-bring-up) leaves the row in SERVING,
         // STARTING_HELPERS, ... and the module only allows PLANNED from EMPTY/STOPPED/FAILED. STOPPED is legal from
         // any state, so reset first; the module also moves ACTIVE nodes back to READY.
@@ -505,9 +517,9 @@ impl Coordinator {
         eprintln!("coordinator: re-planning for joined helpers {ready:?}");
         let previous = self.active.clone();
         if let Some(s) = self.server.take() {
-            s.stop(); // bring_up moves the row SERVING -> PLANNED (no STOPPED on screen)
+            s.stop(); // launch moves the row SERVING -> PLANNED (no STOPPED on screen)
         }
-        match self.bring_up() {
+        match self.launch() {
             Ok(()) => Ok(()),
             Err(e) => {
                 // Keep the pool: leave the joined helpers out and bring the previous set back.
@@ -518,7 +530,7 @@ impl Coordinator {
                     "launch_failed",
                     &format!("join of {ready:?} failed ({e}); restoring the previous pool"),
                 );
-                self.bring_up()
+                self.launch()
             }
         }
     }
@@ -548,7 +560,7 @@ impl Coordinator {
         let helpers = std::mem::take(&mut self.active);
         self.stop_server()?;
         // Ponytail #14: keep going past a helper that's offline, so the others still stop.
-        for id in helpers {
+        for id in helpers.clone() {
             let (cb, rx) = done();
             let sent = self
                 .conn
@@ -559,6 +571,22 @@ impl Coordinator {
             if let Err(e) = sent {
                 eprintln!("coordinator: stop_rpc_server {id}: {e}");
             }
+        }
+        // Wait (<= 10 s) until the agents report those rpc-servers gone. A coordinator started right after this one
+        // otherwise sees the stale `running` heartbeats, sends no start_rpc_server and launches llama-server against
+        // rpc-servers that are shutting down: llama-server SIGSEGVs in load_tensors (full_cycle 6h, #51 review).
+        let t = Instant::now();
+        while t.elapsed() < Duration::from_secs(10)
+            && helpers.iter().any(|id| {
+                self.conn
+                    .db
+                    .heartbeat()
+                    .node_id()
+                    .find(id)
+                    .is_some_and(|h| h.rpc_state == "running")
+            })
+        {
+            sleep(POLL);
         }
         Ok(())
     }

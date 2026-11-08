@@ -602,8 +602,13 @@ function liveModelControls() {
   if (liveSwitch) {
     if (LOADING_STATES.includes(liveCluster.state) || liveCluster.state === 'STOPPED') liveSwitch.sawLoad = true;
     const settled = liveCluster.state === 'SERVING' && (liveCluster.model === liveSwitch.to || liveSwitch.sawLoad);
-    if (settled || Date.now() - liveSwitch.at > 15 * 60e3) {
-      liveNote(liveCluster.model === liveSwitch.to ? `now serving ${liveCluster.model}` : `switch to ${liveSwitch.to} failed; still serving ${liveCluster.model} (see events)`);
+    // Aries #51 review item 10: if the pool never leaves SERVING (coordinator down, or it ignored the id), stop
+    // waiting after 30 s instead of keeping the select disabled.
+    const ignored = !liveSwitch.sawLoad && liveCluster.state === 'SERVING' && Date.now() - liveSwitch.at > 30e3;
+    if (settled || ignored || Date.now() - liveSwitch.at > 15 * 60e3) {
+      liveNote(liveCluster.model === liveSwitch.to ? `now serving ${liveCluster.model}`
+        : ignored ? `switch to ${liveSwitch.to} not picked up by the coordinator; still serving ${liveCluster.model}`
+        : `switch to ${liveSwitch.to} failed; still serving ${liveCluster.model} (see events)`);
       liveSwitch = null;
     }
   }
@@ -618,7 +623,8 @@ async function liveRequestModel(id) {
     const r = await fetch(`${LIVE_STDB}/v1/database/${LIVE_DB}/call/request_model`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify([id]), signal: AbortSignal.timeout(5000),
     });
-    if (!r.ok) throw new Error(`SpacetimeDB ${r.status}`);
+    // The reducer's own message on refusal, e.g. the one-switch-per-30-s cooldown (#51 review item 3).
+    if (!r.ok) throw new Error((await r.text()).replace(/^E_CONFIG: /, '') || `SpacetimeDB ${r.status}`);
     liveSwitch = { to: id, at: Date.now(), sawLoad: false };
     liveNote(`switching to ${id}: the pool reloads (no answers until it is serving again)`);
     respond(`switching to ${id}…`);

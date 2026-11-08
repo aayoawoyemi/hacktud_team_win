@@ -119,16 +119,35 @@ fn ask(port: u16, prompt: &str) -> String {
 }
 
 /// Ask for a model exactly as the dashboard does: an anonymous HTTP call of the request_model reducer.
-fn request_model(id: &str) {
+/// One request_model call; returns (HTTP status, body).
+fn try_request_model(id: &str) -> (String, String) {
     let (uri, db) = spacetime();
     let out = Command::new("curl")
-        .args(["-s", "-o", "/dev/null", "-w", "%{http_code}", "-X", "POST"])
+        .args(["-s", "-w", "\n%{http_code}", "-X", "POST"])
         .arg(format!("{uri}/v1/database/{db}/call/request_model"))
         .args(["-H", "Content-Type: application/json", "-d"])
         .arg(serde_json::json!([id]).to_string())
         .output()
         .expect("curl");
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "200", "request_model {id}");
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    let (body, code) = text.rsplit_once('\n').unwrap_or(("", &text));
+    (code.to_string(), body.to_string())
+}
+
+/// request_model, waiting out the module's one-switch-per-30-s cooldown (Aries #51 review item 3).
+fn request_model(id: &str) {
+    let t = Instant::now();
+    loop {
+        let (code, body) = try_request_model(id);
+        if code == "200" {
+            return;
+        }
+        assert!(
+            body.contains("one model switch per") && t.elapsed() < Duration::from_secs(45),
+            "request_model {id}: {code} {body}"
+        );
+        sleep(Duration::from_secs(1));
+    }
 }
 
 /// Event messages from the db (the coordinator's cache doesn't subscribe to `event`).
@@ -231,7 +250,7 @@ fn full_cycle_two_helpers_then_join() {
     println!("1. register: helper-a, helper-b");
     let a = Agent::spawn("helper-a", 50072, &bin, &log_dir);
     let b = Agent::spawn("helper-b", 50073, &bin, &log_dir);
-    let mut c = Coordinator::connect(cfg).expect("coordinator connects");
+    let mut c = Coordinator::connect(cfg.clone()).expect("coordinator connects");
     wait_until("2 helpers online", 15, || c.helpers().len() == 2);
     println!("  nodes: {:?}", node_states(&c));
 
@@ -305,6 +324,11 @@ fn full_cycle_two_helpers_then_join() {
     // Preston (Sun 2am): switch the active model from the dashboard; Aries 07:50Z: a failed load restores the old one.
     println!("6c. model switch: test-model -> alt");
     request_model("alt");
+    let (code, body) = try_request_model("broken");
+    assert!(
+        code != "200" && body.contains("one model switch per"),
+        "a second request right away must hit the cooldown: {code} {body}"
+    );
     wait_until("SERVING on alt", 180, || {
         c.tick().expect("tick");
         c.cfg.model_id == "alt" && c.cluster_state() == "SERVING"
@@ -347,6 +371,17 @@ fn full_cycle_two_helpers_then_join() {
     });
     assert_eq!(c.cfg.model_path, env("MODEL"));
     assert!(!ask(port, "Name one animal.").is_empty());
+
+    // Aries/P2 #51 review item 2: a request left in the db from before a restart must not override the config.
+    println!("6h. restart: a stale model request is ignored, the configured default loads");
+    request_model("alt");
+    c.shutdown().expect("shutdown before restart");
+    drop(c);
+    let mut c = Coordinator::connect(cfg.clone()).expect("coordinator reconnects");
+    c.bring_up().expect("bring-up after restart");
+    assert_eq!(c.cfg.model_id, "test-model");
+    assert_eq!(c.cluster_state(), "SERVING");
+    assert!(!ask(port, "Name one tree.").is_empty());
 
     println!("7. stop");
     c.shutdown().expect("shutdown");
