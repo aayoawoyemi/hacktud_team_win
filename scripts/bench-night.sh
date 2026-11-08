@@ -18,7 +18,7 @@ ENV_FILE="${BENCH_NIGHT_ENV:-$HERE/bench-night.env}"
 . "$ENV_FILE"
 
 : "${LLAMA_SERVER:?set in env}" "${COORDINATOR:?set in env}" "${BENCH:?set in env}" "${MODEL_12B:?set in env}"
-: "${SPACETIME_TOKEN:?set in env}"
+# SPACETIME_TOKEN is needed only when pool runs go through the coordinator (POOL_LAUNCH=coordinator, the default).
 MODEL_26B="${MODEL_26B:-}"
 MODEL_26B_BYTES="${MODEL_26B_BYTES:-26859861728}"
 MODEL_26B_URL="${MODEL_26B_URL:-}"
@@ -149,8 +149,16 @@ for RUN in $RUN_LIST; do
   if [ -z "$STATUS" ]; then
     log "$RUN: start ($NOTE)"
     T0=$(date +%s)
-    if [ "$MODE" = single ]; then
-      FA_ARGS=""; [ -n "$FA" ] && FA_ARGS="-fa $FA"
+    FA_ARGS=""; [ -n "$FA" ] && FA_ARGS="-fa $FA"
+    if [ "$MODE" = pool ] && [ "${POOL_LAUNCH:-coordinator}" = direct ]; then
+      # Data plane only, no coordinator/SpacetimeDB: llama-server with --rpc to helpers whose rpc-server is already
+      # running (RPC_HOSTS="ip:port,ip:port"). Same llama-server args the coordinator passes; the numbers measure the pool.
+      # shellcheck disable=SC2086
+      echo "$LLAMA_SERVER -m $MODEL -ngl 99 -c $CTX --rpc ${RPC_HOSTS:?set RPC_HOSTS} --host 0.0.0.0 --port $PORT $FA_ARGS $EXTRA" > "$DIR/cmd.txt"
+      # shellcheck disable=SC2086
+      "$LLAMA_SERVER" -m "$MODEL" -ngl 99 -c "$CTX" --rpc "$RPC_HOSTS" --host 0.0.0.0 --port "$PORT" $FA_ARGS $EXTRA > "$DIR/llama-server.log" 2>&1 &
+      LPID=$!; READY_MAX=1200; [ "$SIZE" = 26 ] && READY_MAX=2400; NODES="$HELPER_NODES $MAIN_NODE"
+    elif [ "$MODE" = single ]; then
       # shellcheck disable=SC2086
       echo "$LLAMA_SERVER -m $MODEL -ngl 99 -c $CTX --host 0.0.0.0 --port $PORT $FA_ARGS $EXTRA" > "$DIR/cmd.txt"
       # shellcheck disable=SC2086
@@ -174,6 +182,7 @@ for RUN in $RUN_LIST; do
         [ -n "$FA" ] && echo "flash_attn = \"$FA\""
         [ -n "$EXTRA" ] && echo "extra_args = $(toml_list $EXTRA)"
       } > "$DIR/coordinator.toml"
+      : "${SPACETIME_TOKEN:?set in env (pool runs through the coordinator)}"
       # The coordinator stops on Enter/EOF on stdin, and bash gives background jobs stdin=/dev/null (P2, #46).
       # A never-writing pipe keeps stdin open; $! is still the coordinator's pid.
       sleep 864001 | SPACETIME_TOKEN="$SPACETIME_TOKEN" "$COORDINATOR" "$DIR/coordinator.toml" > "$DIR/coordinator.log" 2>&1 &
