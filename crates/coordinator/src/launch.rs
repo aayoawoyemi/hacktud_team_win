@@ -111,6 +111,33 @@ pub fn accepting(addr: &str) -> bool {
         .any(|a: SocketAddr| TcpStream::connect_timeout(&a, PROBE_TIMEOUT).is_ok())
 }
 
+/// CONCEPT: RPC hello (llama.cpp b8665, RPC protocol 3.6.1): command byte 14, 8-byte little-endian body size 0; the
+///          server answers with size 3 + the version. True only if a reply arrives.
+/// WHY: TCP accept is not enough. An rpc-server serves one client at a time; one still held by a dead client (its
+///      helper slept through the previous llama-server's exit: .204, Sun 4:45am) accepts TCP but never serves,
+///      and llama-server then aborts at the handshake. A healthy, busy one queues the probe too, so this is only
+///      meaningful when none of OUR llama-servers is connected (at launch). Measured on .174: free -> reply,
+///      busy or dead-client-held -> timeout; the probe doesn't disturb a serving llama-server.
+pub fn rpc_hello(addr: &str) -> bool {
+    let Some(a) = addr.to_socket_addrs().ok().and_then(|mut it| it.next()) else {
+        return false;
+    };
+    let Ok(mut s) = TcpStream::connect_timeout(&a, PROBE_TIMEOUT) else {
+        return false;
+    };
+    let _ = s.set_read_timeout(Some(Duration::from_secs(2)));
+    let _ = s.set_write_timeout(Some(PROBE_TIMEOUT));
+    let mut msg = vec![RPC_CMD_HELLO];
+    msg.extend_from_slice(&0u64.to_le_bytes());
+    let mut reply = [0u8; 11];
+    s.write_all(&msg).is_ok()
+        && s.read_exact(&mut reply).is_ok()
+        && u64::from_le_bytes(reply[..8].try_into().unwrap_or_default()) == 3
+}
+
+/// llama.cpp ggml-rpc `RPC_CMD_HELLO` (b8665).
+const RPC_CMD_HELLO: u8 = 14;
+
 /// Where we reach llama-server ourselves: its bind address, except a wildcard bind is reached via loopback.
 fn local_addr(spec: &LaunchSpec) -> String {
     let host = match spec.host.as_deref() {

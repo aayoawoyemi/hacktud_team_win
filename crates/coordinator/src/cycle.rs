@@ -389,6 +389,37 @@ impl Coordinator {
             }
             sleep(POLL);
         };
+        // Self-heal (Aries 10:48Z): none of our llama-servers is connected now, so every healthy rpc-server answers
+        // an RPC hello. One that doesn't is held by a dead client and would abort llama-server at the handshake.
+        // Restart those through their agents (rpc-server -c keeps the tensor cache), once; skip any still stuck.
+        let wedged: Vec<String> = helpers
+            .iter()
+            .zip(&rpc)
+            // 3 tries (~6 s worst case): right after a re-plan stops the old llama-server, a healthy rpc-server may
+            // still be closing that session for a moment, and a needless restart reloads the helper's weights.
+            .filter(|(_, a)| !(0..3).any(|_| launch::rpc_hello(a)))
+            .map(|(n, _)| n.node_id.clone())
+            .collect();
+        let (helpers, rpc) = if wedged.is_empty() {
+            (helpers, rpc)
+        } else {
+            self.unwedge(&wedged)?;
+            let helpers: Vec<NodeRow> = helpers
+                .into_iter()
+                .filter(|n| {
+                    let ok = self.rpc_addr(n).is_some_and(|a| launch::rpc_hello(&a));
+                    if !ok {
+                        self.skip(&n.node_id, "rpc-server held by a dead client, still stuck after a restart");
+                    }
+                    ok
+                })
+                .collect();
+            if helpers.is_empty() {
+                return self.fail("E_RPC_UNREACHABLE: every helper's rpc-server is stuck");
+            }
+            let rpc = helpers.iter().filter_map(|n| self.rpc_addr(n)).collect();
+            (helpers, rpc)
+        };
         let ids: Vec<String> = helpers.iter().map(|n| n.node_id.clone()).collect();
 
         // 4-6. Launch llama-server over the helpers (RPC devices first, main's own GPU last: O-23) and wait.
@@ -533,6 +564,60 @@ impl Coordinator {
                 self.launch()
             }
         }
+    }
+
+    /// Restart the rpc-servers of `ids` through their agents: stop, wait (<= 10 s) until each is reported stopped,
+    /// start, wait (<= 60 s) until each answers an RPC hello. Errors only on a transport failure; a helper that
+    /// stays stuck is left for the caller to skip.
+    fn unwedge(&mut self, ids: &[String]) -> Result<(), String> {
+        self.event(
+            "recovery_started",
+            &format!("rpc-server held by a dead client on {ids:?}; restarting it"),
+        );
+        let issue = |c: &Self, id: &String, kind: &str, args: String| -> Result<(), String> {
+            let (cb, rx) = done();
+            c.conn
+                .reducers
+                .issue_command_then(id.clone(), kind.into(), args, cb)
+                .map_err(|e| e.to_string())?;
+            wait(rx)
+        };
+        let running = |c: &Self, id: &String| {
+            c.conn
+                .db
+                .heartbeat()
+                .node_id()
+                .find(id)
+                .is_some_and(|h| h.rpc_state == "running")
+        };
+        for id in ids {
+            issue(self, id, "stop_rpc_server", "{}".into())?;
+        }
+        let t = Instant::now();
+        while t.elapsed() < Duration::from_secs(10) && ids.iter().any(|id| running(self, id)) {
+            sleep(POLL);
+        }
+        for id in ids {
+            if let Some(n) = self.conn.db.node().node_id().find(id) {
+                issue(self, id, "start_rpc_server", start_args(&n))?;
+            }
+        }
+        let t = Instant::now();
+        while t.elapsed() < STEP_TIMEOUT
+            && ids.iter().any(|id| {
+                !self
+                    .conn
+                    .db
+                    .node()
+                    .node_id()
+                    .find(id)
+                    .and_then(|n| self.rpc_addr(&n))
+                    .is_some_and(|a| launch::rpc_hello(&a))
+            })
+        {
+            sleep(POLL);
+        }
+        Ok(())
     }
 
     fn skip(&mut self, id: &str, why: &str) {

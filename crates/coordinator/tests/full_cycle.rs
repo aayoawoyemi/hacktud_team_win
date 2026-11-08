@@ -372,6 +372,43 @@ fn full_cycle_two_helpers_then_join() {
     assert_eq!(c.cfg.model_path, env("MODEL"));
     assert!(!ask(port, "Name one animal.").is_empty());
 
+    // Aries 10:48Z self-heal: an rpc-server held by a dead client (a helper that slept through the old llama-server's
+    // exit; .204, Sun 4:45am) accepts TCP but never serves, and the next launch aborted at the RPC handshake.
+    // Deterministic setup: llama-server crashes (the rpc-servers are then free), a raw TCP client connects to
+    // helper-a's rpc-server and goes silent (accepted at once, so helper-a is now stuck), then bring_up must restart
+    // helper-a instead of launching against it.
+    println!("6j. helper rpc-server held by a dead client -> restarted at launch");
+    let pid = String::from_utf8(
+        Command::new("lsof")
+            .args(["-ti", &format!("tcp:{port}"), "-sTCP:LISTEN"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    Command::new("kill").args(["-9", pid.trim()]).status().unwrap();
+    wait_until("llama-server exit noticed", 30, || {
+        let _ = c.tick();
+        !c.is_serving()
+    });
+    let dead_client = std::net::TcpStream::connect("127.0.0.1:50072").expect("dead client connects");
+    sleep(Duration::from_secs(1));
+    assert!(
+        !coordinator::launch::rpc_hello("127.0.0.1:50072"),
+        "helper-a must be stuck behind the silent client"
+    );
+    c.bring_up().expect("bring-up unwedges helper-a");
+    assert_eq!(c.cluster_state(), "SERVING");
+    assert_eq!(c.active().len(), 3);
+    assert!(
+        event_messages()
+            .iter()
+            .any(|m| m.contains("held by a dead client")),
+        "the unwedge must be logged"
+    );
+    assert!(!ask(port, "Name one mountain.").is_empty());
+    drop(dead_client);
+
     // Aries/P2 #51 review item 2: a request left in the db from before a restart must not override the config.
     println!("6h. restart: a stale model request is ignored, the configured default loads");
     request_model("alt");
