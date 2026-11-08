@@ -12,7 +12,7 @@ DEPENDS ON: (1) llama-server on main (b8665): /health, /props, POST /v1/chat/com
 AFFECTS: nothing else; read-only except the chat request to llama-server.
 
 Run on main:   cd hacktud_team_win && python3 -m http.server 8000      then open http://<main IP>:8000/web/
-URL options:   ?main=<host>  (default: the host serving the page)   ?db=pool   ?llama=8080   ?stdb=3000   ?mock=1
+URL options:   ?main=<host>  (default: the host serving the page)   ?db=pool   ?llama=8080   ?stdb=3000   ?mock=1   ?direct
 Modes (auto):  SpacetimeDB answers -> "live" (tables).  Otherwise -> "direct" (llama-server + the MACHINES list).
 -->
 <html lang="en">
@@ -90,6 +90,7 @@ const DB = q.get("db") || "pool";
 const LLAMA = `http://${HOST}:${q.get("llama") || 8080}`;
 const STDB = `http://${HOST}:${q.get("stdb") || 3000}`;
 const MOCK = q.has("mock");
+const DIRECT = q.has("direct");   // skip SpacetimeDB (Checkpoint A by hand: a stale `pool` db must not show)
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
 const COLORS = ["#58a6ff", "#3fb950", "#d29922", "#bc8cff", "#ff7b72", "#39c5cf"];
@@ -204,7 +205,7 @@ async function tick() {
     if (up !== llamaUp) localEvents.unshift({ at: new Date(), text: `llama-server ${up ? "up" : "down"} at ${LLAMA}` });
     llamaUp = up;
   }
-  try { render(MOCK ? await fromFixtures() : await fromSpacetime().catch(() => fromLlamaOnly())); }
+  try { render(MOCK ? await fromFixtures() : await (DIRECT ? Promise.reject() : fromSpacetime()).catch(() => fromLlamaOnly())); }
   catch (e) { $("mode").textContent = "error: " + e.message; }
 }
 tick(); setInterval(tick, MOCK ? 5000 : 1000);
