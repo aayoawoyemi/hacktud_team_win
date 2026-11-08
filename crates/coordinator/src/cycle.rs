@@ -498,9 +498,35 @@ impl Coordinator {
         if let Some(status) = self.server.as_mut().and_then(LlamaServer::exited) {
             self.server = None;
             self.event("llama_server_exited", &status);
-            // D-14: no automatic recovery in the demo; the pool goes to STOPPED (never FAILED on screen, Aayo
-            // 11:20pm) and an operator restarts. The reason is in the event log.
             self.active.clear();
+            // F2 (Aries 07:30Z item 3, approved 07:50Z): llama-server dies when a helper's rpc-server dies under it.
+            // Make ONE bring-up with the helpers still online (their agents restart rpc-server on command; a LOST
+            // helper is left out) before giving up. Only if that fails does the pool go to STOPPED (never FAILED on
+            // screen, Aayo 11:20pm) and wait for an operator; the reasons are in the event log.
+            if self.helpers().len() >= self.cfg.min_helpers.max(1) {
+                self.event("recovery_started", "llama-server exited; one bring-up with the online helpers");
+                // Heartbeats lag a crash by up to a beat: the dead helper still reads `running` (found by full_cycle
+                // 6g). Wait (<= 10 s) until no online helper claims a running rpc-server whose port is closed, so
+                // launch() restarts the dead ones instead of launching against them.
+                let t = Instant::now();
+                while t.elapsed() < Duration::from_secs(10)
+                    && self
+                        .helpers()
+                        .iter()
+                        .any(|n| self.rpc_addr(n).is_some_and(|a| !launch::accepting(&a)))
+                {
+                    sleep(POLL);
+                }
+                // launch(), not bring_up(): recover the model that was serving; a pending model request is taken by
+                // the next tick through switch_model, with its own restore.
+                match self.launch() {
+                    Ok(()) => {
+                        self.event("recovery_succeeded", "pool serving again");
+                        return Ok(());
+                    }
+                    Err(e) => self.event("recovery_failed", &e),
+                }
+            }
             let _ = self.set_state("STOPPED", &[], "");
             return Err(format!("llama-server exited: {status}"));
         }
