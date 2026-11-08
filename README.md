@@ -1,5 +1,15 @@
 # Oasis
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+![Open source](https://img.shields.io/badge/open%20source-yes-brightgreen)
+![Rust 1.99.1](https://img.shields.io/badge/rust-1.99.1-orange?logo=rust)
+![SpacetimeDB 2.14.1](https://img.shields.io/badge/SpacetimeDB-2.14.1-blueviolet)
+![llama.cpp b8665](https://img.shields.io/badge/llama.cpp-b8665-blue)
+![Platform: macOS Apple silicon](https://img.shields.io/badge/platform-macOS%20%7C%20Apple%20silicon-lightgrey?logo=apple)
+![Runs offline](https://img.shields.io/badge/runs-offline%2C%20no%20cloud-success)
+![Tests: 97](https://img.shields.io/badge/tests-97-informational)
+![HackUTD 2026](https://img.shields.io/badge/HackUTD-2026-ff69b4)
+
 Oasis pools the computers an office already owns into one private AI server. It splits a language model too big for
 any single machine across several of them, over a local network, with no cloud and no internet connection.
 
@@ -48,9 +58,9 @@ The system has three layers:
 
 Each machine runs a small Rust program, the agent. On start, the agent reads its GPU devices and free memory
 (`llama-server --list-devices`), registers itself as a row in the `node` table, and then sends a heartbeat every
-second. When an agent disconnects, the database marks its machine offline at once. The agent also owns the machine's `rpc-server`,
-the llama.cpp process that holds that machine's share of the model, and starts or stops it only when the database
-tells it to.
+second. When an agent disconnects, the database marks its machine offline at once. The agent also owns the
+machine's `rpc-server`, the llama.cpp process that holds that machine's share of the model, and starts or stops it
+only when the database tells it to.
 
 ### 2. The coordinator plans the split and launches the model
 
@@ -204,8 +214,8 @@ command-line tools launched by another app (errno 65, Apple TN3179).
    ```
 
    Then open `http://<this-machine>:8000/oasis.html?stdb=http://<main-ip>:3000&llama=http://<main-ip>:8080`.
-   `oasis-v4.html` takes the same parameters. `oasis.html?demo=1` plays sample data without a pool. `oasis-v2.html` takes the same parameters and adds a
-   model menu and a chat.
+   `oasis-v4.html` and `oasis-v2.html` take the same parameters; v4 adds the SpacetimeDB view and v2 adds a model
+   menu and a chat. `oasis.html?demo=1` plays sample data without a pool.
 
 6. **Chat.** `llama-server` on main serves the OpenAI-style API:
 
@@ -273,6 +283,10 @@ command-line tools launched by another app (errno 65, Apple TN3179).
 | `CONTRACTS.md` | Shared shapes: tables, reducers, routes, env vars, folder ownership |
 
 Model files (`models/`, `*.gguf`) and `target/` are git-ignored.
+
+## License
+
+MIT. See [LICENSE](LICENSE). llama.cpp and SpacetimeDB keep their own licenses.
 
 ## How it was built
 
