@@ -1,0 +1,10 @@
+[package]
+name = "sdk-test"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.93"
+
+[workspace]
+
+[dependencies]
+spacetimedb-sdk = "=2.10.1"
