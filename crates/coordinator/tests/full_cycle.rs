@@ -337,6 +337,17 @@ fn full_cycle_two_helpers_then_join() {
     assert_eq!(c.cfg.model_id, "alt");
     assert_eq!(c.cluster_state(), "SERVING");
 
+    println!("6f. switch back to the default model (it must stay in the list after a switch)");
+    let row = c.conn.db.cluster_status().iter().next().unwrap();
+    assert!(row.status_json.contains("\"test-model\""), "{}", row.status_json);
+    request_model("test-model");
+    wait_until("SERVING on test-model", 180, || {
+        c.tick().expect("tick");
+        c.cfg.model_id == "test-model" && c.cluster_state() == "SERVING"
+    });
+    assert_eq!(c.cfg.model_path, env("MODEL"));
+    assert!(!ask(port, "Name one animal.").is_empty());
+
     println!("7. stop");
     c.shutdown().expect("shutdown");
     assert_eq!(c.cluster_state(), "STOPPED");

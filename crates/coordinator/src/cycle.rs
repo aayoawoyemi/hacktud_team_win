@@ -102,6 +102,8 @@ pub struct Coordinator {
     join: Option<(u64, Instant)>,
     /// `requested_at` of the last model_request row acted on, so each dashboard request is handled once.
     model_seen: Option<spacetimedb_sdk::Timestamp>,
+    /// The configured model_id / model_path, kept so the default stays switchable after a switch changes cfg.
+    default_model: (String, String),
 }
 
 impl Coordinator {
@@ -131,6 +133,7 @@ impl Coordinator {
         rx.recv_timeout(Duration::from_secs(10))
             .map_err(|_| "E_TRANSPORT: subscription not applied in 10 s".to_string())?;
         let cluster = conn.db.cluster_status().iter().next();
+        let cfg_model = (cfg.model_id.clone(), cfg.model_path.clone());
         Ok(Self {
             cfg,
             conn,
@@ -142,6 +145,7 @@ impl Coordinator {
             starting: vec![],
             join: None,
             model_seen: None,
+            default_model: (cfg_model.0, cfg_model.1),
         })
     }
 
@@ -200,8 +204,8 @@ impl Coordinator {
     /// Ids the dashboard may pick: the [models] keys plus the default model, sorted.
     pub fn model_ids(&self) -> Vec<String> {
         let mut ids: Vec<String> = self.cfg.models.keys().cloned().collect();
-        if !self.cfg.model_id.is_empty() && !ids.contains(&self.cfg.model_id) {
-            ids.push(self.cfg.model_id.clone());
+        if !self.default_model.0.is_empty() && !ids.contains(&self.default_model.0) {
+            ids.push(self.default_model.0.clone());
         }
         ids.sort();
         ids
@@ -243,6 +247,8 @@ impl Coordinator {
     fn use_model(&mut self, id: &str) {
         if let Some(path) = self.cfg.models.get(id) {
             self.cfg.model_path = path.clone();
+        } else if id == self.default_model.0 {
+            self.cfg.model_path = self.default_model.1.clone();
         }
         self.cfg.model_id = id.to_string();
     }
