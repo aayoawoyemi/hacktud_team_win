@@ -64,6 +64,9 @@ body[data-type="monaco"]{--mono:Monaco,Menlo,Consolas,monospace}
 @media(min-width:651px) and (max-width:900px){body[data-layout="multiplexer"] .inspect-model-runtime{grid-column:1;grid-row:3;margin-top:12px}body[data-layout="multiplexer"] #inspect-memory{grid-row:1/4}body[data-layout="multiplexer"] #inspect-allocation{grid-row:1/4}}
 
 .flow-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4}
+/* CONCEPT: Chat pane (P1, Sun 1:30am). Full width under the topology so the token dots stay visible while answers stream.
+   AFFECTS: live mode only; fixture and run-through pages never show it. */
+.chat-pane{grid-column:1/-1;border-top:1px solid var(--line)}#chat-title{font-weight:400}#chat-route{text-transform:none}#chat-log{padding:14px 20px;max-height:280px;overflow:auto;display:flex;flex-direction:column;gap:14px;font-size:11px}#chat-log:empty::before{content:"Type a question below. Every token is computed across the machines shown above.";color:var(--dim);font-size:9px}.chat-msg>small{display:block;font-size:8px;color:var(--muted);margin-bottom:5px}.chat-msg>p{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink);line-height:1.65}.chat-user>p{color:var(--secondary)}.chat-meta{font-size:8px;color:var(--muted);margin-top:6px}.chat-form{display:flex;gap:12px;align-items:center;padding:10px 20px;border-top:1px solid var(--faint)}.chat-form label{font-size:9px;color:var(--accent)}.chat-form input{flex:1;min-width:0;border:1px solid var(--line);background:var(--bg);color:var(--ink);padding:9px 10px;font-size:11px;border-radius:0}
 </style></head>
 <body data-layout="multiplexer" data-palette="graphite" data-type="system" data-model-behavior="inspector"><a href="#workspace" class="skip">Skip to connected nodes</a>
 <div class="terminal-shell">
@@ -76,6 +79,7 @@ body[data-type="monaco"]{--mono:Monaco,Menlo,Consolas,monospace}
 <div class="monitor"><div class="monitor-command"><span>$</span> oasis nodes --connected</div><div class="monitor-group"><span id="monitor-count">3 nodes</span><span>local pool / sample inputs</span></div><div class="table-scroll"><table><thead><tr><th>NODE</th><th>ROLE</th><th>CONNECTION</th><th>MODEL</th><th>RAM</th><th>GPU CAP</th><th>WEIGHT BUDGET</th></tr></thead><tbody id="node-table"></tbody></table></div><div class="monitor-total"><span>pool weight budget <strong id="monitor-budget">35.7 GiB</strong></span><span>after reserves, buffers and KV</span></div><p class="monitor-hint">↑ ↓ select node <span>Enter inspect</span></p></div>
 <div class="stage-status"><span id="nodes-status" data-connection="connected"><i class="connection-dot" aria-hidden="true"></i> 3 preview nodes connected</span><span>latency <b id="live-ttft">–</b> <em>/</em> generation <b id="live-tps">–</b> <small id="live-speed-note">not measured</small></span></div></section>
 <aside class="inspector" id="right-inspector" aria-labelledby="inspect-title"><div class="pane-caption">inspect <span id="inspect-id">[n01]</span></div><div class="inspector-content" id="node-inspector"><div class="inspect-heading"><h2 id="inspect-title">main-mac</h2><span class="state" id="inspect-connection"><span class="connection-status" data-connection="connected"><i class="connection-dot" aria-hidden="true"></i>connected</span></span></div><p id="inspect-hardware" class="muted"></p><div id="inspect-model-runtime" class="inspect-model-runtime"><span>model runtime</span><strong id="inspect-model-status">not loaded</strong><small id="inspect-loaded-model" hidden></small></div><dl id="inspect-memory"></dl><div class="inspect-section">planned allocation <span>estimate</span></div><div id="allocation-strip" class="allocation-strip" aria-label="Illustrative layer assignment in RPC device order"></div><dl id="inspect-allocation"></dl><details><summary>accounting details <span>+</span></summary><p id="inspect-explanation"></p><p>Equal-sized fixture layers. This is not a measured runtime placement.</p></details><button class="text-button" id="inspect-join">[j] preview a new node</button></div><div id="inspector-model-panel" hidden><div id="model-controls"><div class="dialog-heading"><h2 id="model-title">model / capacity</h2><button id="model-close" aria-label="Close model controls">×</button></div><p class="note">Fixture metadata. Context changes update the estimate.</p><div class="model-field"><label for="model-select">model</label><select id="model-select"><option value="qwen32">qwen2.5:32b / Q4_K_M / 18.5 GiB</option><option value="qwen14">qwen2.5:14b / Q4_K_M / 8.9 GiB</option><option value="qwen72">qwen2.5:72b / Q4_K_M / 44.3 GiB</option></select></div><div class="model-field"><label for="context-select">context / tokens</label><select id="context-select"><option value="2048">2,048</option><option value="4096" selected>4,096</option><option value="8192">8,192</option><option value="16384">16,384</option><option value="32768">32,768</option></select></div><div id="fit-explanation" class="fit-explanation" aria-live="polite"></div><details><summary>calculation <span>+</span></summary><p id="fit-calculation"></p><p>Aggregate capacity does not guarantee successful placement or loading.</p></details><button id="model-done" class="action dialog-action">return to nodes ↵</button></div></div></aside>
+<section class="chat-pane" id="chat-pane" aria-labelledby="chat-title" hidden><div class="pane-caption"><b id="chat-title">chat</b><span id="chat-route">answers come from the whole pool</span></div><div id="chat-log" role="log" aria-live="polite"></div><form id="chat-form" class="chat-form"><label for="chat-input">you</label><input id="chat-input" placeholder="ask the pool anything" autocomplete="off" spellcheck="false"><button type="submit" class="action" id="chat-send">send ↵</button><button type="button" class="text-button" id="chat-clear">clear</button></form></section>
 <section class="session-pane"><div class="pane-caption">session <span>preview events</span></div><div id="event-log" role="log" aria-live="polite"></div></section>
 <section class="model-dock" aria-label="Model and capacity"><button id="model-open" class="dock-model" aria-controls="model-controls" aria-expanded="false"><span class="dock-label">model</span><strong id="dock-model">qwen2.5:32b</strong><small>Q4_K_M <span>[m]</span></small></button><div><span class="dock-label">context</span><strong id="dock-context">4,096</strong></div><div><span class="dock-label">capacity</span><strong id="dock-fit" class="fit">requires pool</strong></div><div class="dock-budget"><span class="dock-label">weights / available</span><strong id="dock-budget">18.5 / 35.7 GiB</strong><div class="budget-track"><span id="budget-fill"></span></div></div><button id="join-open" class="action">+ join preview <kbd>J</kbd></button></section>
 </main>
@@ -486,7 +490,8 @@ const LOADING_STATES = ['PLANNED', 'STARTING_HELPERS', 'LAUNCHING'];
 
 function liveRuntime(state, health, isMain, nodeState) {
   if (isMain) return health === 200 ? (LOADING_STATES.includes(state) ? 'loading' : 'serving') : health === 503 ? 'loading' : 'not_loaded';
-  if (state === 'SERVING' && nodeState === 'ACTIVE') return 'serving';
+  // DEGRADED = a helper left but llama-server still runs on the plan's layers, so ACTIVE helpers are still serving.
+  if ((state === 'SERVING' || state === 'DEGRADED') && nodeState === 'ACTIVE') return 'serving';
   if (LOADING_STATES.includes(state) && ['READY', 'ACTIVE'].includes(nodeState)) return 'loading';
   return 'not_loaded';
 }
@@ -512,7 +517,7 @@ async function livePoll() {
   }
   const c = cs[0] || {};
   // #33 (Aayo): never FAILED on screen; an old row reads STOPPED.
-  liveCluster = { state: c.cluster_state === 'FAILED' ? 'STOPPED' : (c.cluster_state || 'EMPTY'), model: c.model_id || '', endpoint: c.endpoint || `${LIVE_LLAMA}/v1` };
+  liveCluster = { state: c.cluster_state === 'FAILED' ? 'STOPPED' : (c.cluster_state || 'EMPTY'), model: c.model_id || '', plan: c.plan_id || '', endpoint: c.endpoint || `${LIVE_LLAMA}/v1` };
   const mainRow = rows.find(r => r.role === 'main');
   const helpers = rows.filter(r => r.role === 'helper').sort((a, b) => a.node_id.localeCompare(b.node_id));
   const toNode = (r, isMain) => {
@@ -572,19 +577,49 @@ function liveDecorate() {
   if (liveCluster.model) $('dock-model').textContent = liveCluster.model;
 }
 
-// `ask <prompt>`: stream one answer from llama-server; show it in the command line, TTFT and tok/s in the log.
+// CONCEPT: Chat with the pool. `ask <prompt>`, ?ask= and the chat pane all land here: the conversation so far goes to
+//          main's llama-server, the answer streams into the chat pane token by token, and each streamed token also
+//          drives one FLOW dot along the RPC route. Each answer is labeled with the machines in the RUNNING plan
+//          (split_plan row for cluster_status.plan_id), i.e. the machines whose layers computed it.
+// WHY: Preston (Sun 1:30am): people must see the model working across all three machines, not a one-line reply.
+// DEPENDS ON: llama-server /v1/chat/completions (OpenAI stream), SpacetimeDB split_plan.plan_json.assignments[].node_id.
+// AFFECTS: chat pane, command-line status, TTFT / tok/s in the stage status, the session log.
+const chatHistory = [];                    // shortcut: whole history resent each turn (last 12 msgs); fine for a demo
+let chatBusy = false;
+function chatAdd(cls, who, text) {
+  const m = element('div', `chat-msg ${cls}`);
+  m.append(element('small', '', who), element('p', '', text));
+  $('chat-log').append(m);
+  $('chat-log').scrollTop = $('chat-log').scrollHeight;
+  return m;
+}
+async function planMachines() {
+  try {
+    const rows = await liveSql(`SELECT plan_json FROM split_plan WHERE plan_id = '${liveCluster.plan.replace(/'/g, '')}'`);
+    const helpers = JSON.parse(rows[0].plan_json).assignments.map(a => a.node_id);
+    const main = nodes.find(n => n.main);
+    return [main && main.name !== 'main' ? main.name : 'main', ...helpers];
+  } catch { return []; }
+}
 async function liveAsk(prompt) {
   if (!prompt) { respond('usage: ask <question>', true); return; }
+  if (chatBusy) { respond('one answer at a time', true); return; }
+  chatBusy = true; $('chat-send').disabled = true;
+  chatHistory.push({ role: 'user', content: prompt });
+  chatAdd('chat-user', 'you', prompt);
+  const reply = chatAdd('chat-bot', `pool / ${liveCluster.model || 'model'}`, '…');
+  const out = reply.querySelector('p');
+  const machines = planMachines();
   const t0 = performance.now();
   FLOW.reset();
   let ttft = null, text = '', timings = null;
-  respond('…');
+  respond('answering…');
   try {
     const r = await fetch(`${LIVE_LLAMA}/v1/chat/completions`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], stream: true, max_tokens: 256, stream_options: { include_usage: true },
-        // WHY: Gemma 4 thinks first (reasoning_content); with thinking on, 256 tokens can end before any visible answer.
-        //      Verified on b8665 against the 12B pool (run-006, #45): no reasoning chunks, answer streams at once.
+      body: JSON.stringify({ messages: chatHistory.slice(-12), stream: true, max_tokens: 512, stream_options: { include_usage: true },
+        // WHY: Gemma 4 thinks first (reasoning_content); with thinking on, the token budget can end before any visible
+        //      answer. Verified on b8665 against the 12B pool (run-006, #45): no reasoning chunks, answer streams at once.
         chat_template_kwargs: { enable_thinking: false } }),
     });
     if (!r.ok || !r.body) throw new Error(`llama-server ${r.status}`);
@@ -600,21 +635,43 @@ async function liveAsk(prompt) {
         if (!line.startsWith('data:') || line.includes('[DONE]')) continue;
         const msg = JSON.parse(line.slice(5));
         const piece = msg.choices && msg.choices[0] && msg.choices[0].delta && msg.choices[0].delta.content;
-        if (piece) { if (ttft === null) { ttft = performance.now() - t0; FLOW.prefill(10); } text += piece; respond(text); FLOW.token(); }
+        if (piece) {
+          if (ttft === null) { ttft = performance.now() - t0; FLOW.prefill(10); }
+          text += piece; out.textContent = text; $('chat-log').scrollTop = $('chat-log').scrollHeight; FLOW.token();
+        }
         if (msg.timings) timings = msg.timings;
       }
     }
+    chatHistory.push({ role: 'assistant', content: text });
     const tps = timings && timings.predicted_per_second ? timings.predicted_per_second.toFixed(1) : '?';
+    const n = timings && timings.predicted_n ? timings.predicted_n : '?';
+    const via = await machines;
+    reply.append(element('div', 'chat-meta', `${n} tokens / TTFT ${ttft === null ? '?' : Math.round(ttft)} ms / ${tps} tok/s${via.length ? ` / computed on ${via.length} machines: ${via.join(' + ')}` : ''}`));
+    if (via.length) $('chat-route').textContent = `layers on ${via.join(' + ')}`;
     liveNote(`answer / TTFT ${ttft === null ? '?' : Math.round(ttft)} ms / ${tps} tok/s / ${liveCluster.model || 'model'}`);
+    respond(`answered / ${tps} tok/s`);
     $('live-ttft').textContent = ttft === null ? '–' : `${Math.round(ttft)} ms`;
     $('live-tps').textContent = `${tps} tok/s`;
     $('live-speed-note').textContent = 'last answer';
   } catch (e) {
+    chatHistory.pop();
+    out.textContent = `no answer: ${e.message} (is the pool serving?)`;
     respond(`no answer: ${e.message} (is the pool serving?)`, true);
+  } finally {
+    chatBusy = false; $('chat-send').disabled = false;
   }
 }
+$('chat-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const q = $('chat-input').value.trim();
+  if (!q || chatBusy) return;
+  $('chat-input').value = '';
+  liveAsk(q);
+});
+$('chat-clear').addEventListener('click', () => { chatHistory.length = 0; $('chat-log').replaceChildren(); $('chat-input').focus(); });
 
 function startLive() {
+  $('chat-pane').hidden = false;
   livePoll().then(() => { if (params.get('ask')) liveAsk(params.get('ask')); });
   setInterval(livePoll, 1000);
 }
