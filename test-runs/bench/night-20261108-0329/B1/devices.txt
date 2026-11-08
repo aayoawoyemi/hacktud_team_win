@@ -1,0 +1,2 @@
+llama_model_load_from_file_impl: using device MTL0 (Apple M5) (unknown id) - 18185 MiB free
+load_tensors: offloaded 49/49 layers to GPU

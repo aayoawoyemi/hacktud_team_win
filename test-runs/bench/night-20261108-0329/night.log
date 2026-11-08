@@ -1,0 +1,7 @@
+[03:29:45] B1: start (12B, M3 alone)
+[03:29:55] B1: ready in 10s, RPC device lines: 0
+[03:39:14] B1: OK
+[03:39:16] B1s: start (12B, M3 alone, ngram speculative)
+[03:39:21] B1s: ready in 5s, RPC device lines: 0
+[03:47:36] B1s: OK
+[03:47:38] done. Summary: /Users/preston/Documents/code/hackathon/hacktud_team_win-wt/bench-night/test-runs/bench/night-20261108-0329/SUMMARY.md

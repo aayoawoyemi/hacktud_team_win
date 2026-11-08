@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<!--
+CONCEPT: one-page pool dashboard for Checkpoint A and the demo: machines (role, IP, GPU budget, state, layers),
+         pool status, a streaming chat box with live TTFT and tok/s, and the event log. Readable on a projector.
+WHY: the demo needs the audience to SEE machines join and the pool answer (D-14). Reading SpacetimeDB live from a
+     browser also shows the Spacetime control plane at work. Changes D-06/D-13 "no frontend" (posted in #11).
+DEPENDS ON: (1) llama-server on main (b8665): /health, /props, POST /v1/chat/completions stream; it sends CORS headers.
+            (2) SpacetimeDB on main :3000, HTTP SQL API POST /v1/database/<db>/sql, public tables node, heartbeat,
+                cluster_status, split_plan, event (crates/control); sends `access-control-allow-origin: *`.
+            (3) mock mode: fixtures/json/*.json (so serve from the REPO ROOT, then open /web/).
+            No CDN, no build step, offline on the LAN (D-02).
+AFFECTS: nothing else; read-only except the chat request to llama-server.
+
+Run on main:   cd hacktud_team_win && python3 -m http.server 8000      then open http://<main IP>:8000/web/
+URL options:   ?main=<host>  (default: the host serving the page)   ?db=pool   ?llama=8080   ?stdb=3000   ?mock=1   ?direct
+Modes (auto):  SpacetimeDB answers -> "live" (tables).  Otherwise -> "direct" (llama-server + the MACHINES list).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pool</title>
+<style>
+  :root { --bg:#0e1116; --panel:#171b22; --line:#2a303a; --text:#e8ecf2; --dim:#8b95a5;
+          --ok:#3fb950; --warn:#d29922; --bad:#f85149; --blue:#58a6ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:18px/1.4 -apple-system, system-ui, sans-serif; }
+  header { display:flex; align-items:center; gap:18px; padding:14px 24px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  h1 { font-size:26px; margin:0; } h2 { font-size:15px; margin:0 0 10px; color:var(--dim); text-transform:uppercase; letter-spacing:.06em; }
+  .badge { padding:4px 12px; border-radius:6px; font-weight:700; font-size:20px; background:var(--line); }
+  .SERVING { background:var(--ok); color:#06210d; } .DEGRADED, .LAUNCHING, .STARTING_HELPERS, .PLANNED { background:var(--warn); color:#2b1d00; }
+  .FAILED { background:var(--bad); } .dim { color:var(--dim); } .mono { font-family: ui-monospace, Menlo, monospace; }
+  main { display:grid; grid-template-columns: 1.3fr 1fr; gap:18px; padding:18px 24px; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  #machines { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:12px; }
+  .card { border:1px solid var(--line); border-radius:8px; padding:12px; border-left:6px solid var(--line); }
+  .card.on { border-left-color:var(--ok); } .card.off { border-left-color:var(--bad); opacity:.65; }
+  .card .name { font-size:21px; font-weight:700; } .card .row { display:flex; justify-content:space-between; gap:8px; }
+  #bar { display:flex; height:46px; border-radius:6px; overflow:hidden; margin-top:14px; }
+  #bar div { display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:600; color:#0e1116;
+             border-right:2px solid var(--panel); white-space:nowrap; overflow:hidden; }
+  #stats { display:flex; gap:28px; margin:8px 0 12px; } .stat b { font-size:32px; display:block; }
+  #answer { min-height:140px; max-height:300px; overflow:auto; white-space:pre-wrap; background:#0b0e13; border-radius:6px; padding:12px; }
+  form { display:flex; gap:8px; margin-top:10px; }
+  input { flex:1; font:inherit; padding:10px; background:#0b0e13; color:var(--text); border:1px solid var(--line); border-radius:6px; }
+  button { font:inherit; padding:10px 18px; background:var(--blue); color:#06121f; border:0; border-radius:6px; font-weight:700; cursor:pointer; }
+  button:disabled { opacity:.5; }
+  #events { max-height:260px; overflow:auto; font-size:15px; } #events div { padding:3px 0; border-bottom:1px solid var(--line); }
+  @media (max-width: 1000px) { main { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pool</h1>
+  <span id="state" class="badge">…</span>
+  <span>model <b id="model" class="mono">-</b></span>
+  <span class="dim">endpoint <span id="endpoint" class="mono">-</span></span>
+  <span class="dim" style="margin-left:auto">mode <b id="mode">-</b> · <span id="updated">-</span></span>
+</header>
+<main>
+  <div style="display:grid; gap:18px; align-content:start">
+    <section><h2>Machines</h2><div id="machines"></div>
+      <div id="bar"></div><div id="plan" class="dim" style="margin-top:6px; font-size:15px"></div></section>
+    <section><h2>Events</h2><div id="events"></div></section>
+  </div>
+  <section><h2>Ask the pool</h2>
+    <div id="stats">
+      <div class="stat"><b id="ttft">-</b><span class="dim">first token (ms)</span></div>
+      <div class="stat"><b id="tps">-</b><span class="dim">tokens / s</span></div>
+      <div class="stat"><b id="ntok">-</b><span class="dim">tokens</span></div>
+    </div>
+    <div id="answer" class="dim">Answers stream here.</div>
+    <form id="ask"><input id="prompt" value="Explain in two sentences how several laptops can run one model." autocomplete="off">
+      <button id="send">Send</button></form>
+  </section>
+</main>
+<script>
+// CONCEPT: static machine list for "direct" mode (Checkpoint A by hand, no SpacetimeDB) and for IPs/budgets the
+//          node table lacks. Match key = node_id (agent default = hostname). EDIT the IPs once the router assigns them.
+// WHY: budgets are the measured MTL0 numbers (#11, 8:39pm / 8:48pm); main does not run an agent, so it is never a node row.
+const MACHINES = [   // Checkpoint A test copy (not committed): this M5 is main for the 0.5B run
+  { node_id: "main",  name: "M5 (main, Preston)", role: "main",   ip: "192.168.8.174", budget_mib: 18186 },
+  { node_id: "h-113", name: "Mac .113",           role: "helper", ip: "192.168.8.113", budget_mib: 0 },
+  { node_id: "h-204", name: "Mac .204",           role: "helper", ip: "192.168.8.204", budget_mib: 0 },
+];
+
+const q = new URLSearchParams(location.search);
+const HOST = q.get("main") || location.hostname || "127.0.0.1";
+const DB = q.get("db") || "pool";
+const LLAMA = `http://${HOST}:${q.get("llama") || 8080}`;
+const STDB = `http://${HOST}:${q.get("stdb") || 3000}`;
+const MOCK = q.has("mock");
+const DIRECT = q.has("direct");   // skip SpacetimeDB (Checkpoint A by hand: a stale `pool` db must not show)
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+const COLORS = ["#58a6ff", "#3fb950", "#d29922", "#bc8cff", "#ff7b72", "#39c5cf"];
+const localEvents = [];   // page-side events (llama-server up/down) for direct mode
+let llamaUp = null;
+
+// SpacetimeDB HTTP SQL: rows come back as positional arrays; Option = [0, v] (some) | [1, []] (none);
+// Timestamp = [micros since epoch]. Turn one result into plain objects.
+function unpack(v) { return Array.isArray(v) && v.length === 2 && (v[0] === 0 || v[0] === 1) && (v[0] === 0 || (Array.isArray(v[1]) && !v[1].length)) ? (v[0] === 0 ? v[1] : null) : v; }
+async function sql(query) {
+  const r = await fetch(`${STDB}/v1/database/${DB}/sql`, { method: "POST", body: query, signal: AbortSignal.timeout(2000) });
+  if (!r.ok) throw new Error(`sql ${r.status}`);
+  const [res] = await r.json();
+  const cols = res.schema.elements.map((e) => e.name.some);
+  return res.rows.map((row) => Object.fromEntries(cols.map((c, i) => [c, unpack(row[i])])));
+}
+const micros = (t) => new Date((Array.isArray(t) ? t[0] : t) / 1000);
+const gpuMib = (devices) => (devices || []).filter((d) => d[0] !== "BLAS" && d.name !== "BLAS").reduce((s, d) => s + Number(d.total_mib ?? d[2] ?? 0), 0);
+
+// Assignment layers [first, last] if the planner filled them (WP-5), else null (llama.cpp's own default split).
+function layersOf(plan, nodeId) {
+  const a = (plan?.assignments || []).find((x) => x.node_id === nodeId);
+  return a ? { device: a.llama_device, layers: a.layers || null } : null;
+}
+
+// ---- data sources -> one view model: { state, model, endpoint, plan, nodes:[{node_id,name,role,ip,budget_mib,state,online,rpc}], events } ----
+async function fromSpacetime() {
+  const [nodes, hbs, cs, plans, events] = await Promise.all([
+    sql("SELECT node_id, role, state, online, devices, addresses FROM node"),
+    sql("SELECT node_id, rpc_state, rpc_port, port_accepting FROM heartbeat"),
+    sql("SELECT * FROM cluster_status"),
+    sql("SELECT plan_id, plan_json FROM split_plan"),
+    sql("SELECT seq, at, kind, node_id, plan_id, message FROM event"),
+  ]);
+  const st = cs[0] || {};
+  const p = plans.find((x) => x.plan_id === st.plan_id);
+  const plan = p ? JSON.parse(p.plan_json) : null;
+  const seen = new Set();
+  const list = nodes.map((n) => {
+    const m = MACHINES.find((x) => x.node_id === n.node_id || (x.ip && n.addresses.includes(x.ip))) || {};
+    seen.add(m.node_id);
+    const hb = hbs.find((h) => h.node_id === n.node_id);
+    return { node_id: n.node_id, name: m.name || n.node_id, role: n.role, ip: n.addresses[0] || m.ip,
+             budget_mib: gpuMib(n.devices) || m.budget_mib, state: n.state, online: n.online,
+             rpc: hb ? `${hb.rpc_state}${hb.rpc_port ? " :" + hb.rpc_port : ""}` : "" };
+  });
+  // Main runs no agent; show it from MACHINES with llama-server's health as its state.
+  for (const m of MACHINES.filter((x) => x.role === "main" && !seen.has(x.node_id)))
+    list.unshift({ ...m, ip: m.ip || HOST, state: llamaUp ? "llama-server up" : "llama-server down", online: llamaUp, rpc: "llama-server" });
+  return { mode: "live (SpacetimeDB)", state: st.cluster_state || "EMPTY", model: st.model_id, endpoint: st.endpoint || `${LLAMA}/v1`,
+           plan, nodes: list,
+           events: events.sort((a, b) => b.seq - a.seq).slice(0, 40).map((e) => ({ at: micros(e.at), text: `${e.kind} ${e.node_id || e.plan_id} ${e.message}` })) };
+}
+
+async function fromLlamaOnly() {
+  let model = null;
+  if (llamaUp) try { model = (await (await fetch(`${LLAMA}/props`, { signal: AbortSignal.timeout(2000) })).json()).model_alias; } catch {}
+  return { mode: "direct (llama-server only)", state: llamaUp ? "SERVING" : "EMPTY", model, endpoint: `${LLAMA}/v1`, plan: null,
+           nodes: MACHINES.map((m) => ({ ...m, ip: m.ip || (m.role === "main" ? HOST : "?"), state: m.role === "main" ? (llamaUp ? "llama-server up" : "llama-server down") : "by hand",
+                                         online: m.role === "main" ? llamaUp : null, rpc: m.role === "main" ? "llama-server" : "rpc-server :50052" })),
+           events: [] };
+}
+
+async function fromFixtures() {
+  const get = async (f) => (await fetch(`../fixtures/json/${f}.json`)).json();
+  const [cs, plan, caps, ev, hb] = await Promise.all(["cluster_status", "split_plan", "node_capabilities", "event", "heartbeat"].map(get));
+  const ids = [...new Set([...plan.assignments.map((a) => a.node_id), ...cs.nodes.map((n) => n.node_id)])];
+  return { mode: "mock (fixtures/json)", state: cs.cluster_state, model: cs.model.model_id, endpoint: cs.endpoint, plan,
+           nodes: ids.map((id) => {
+             const n = cs.nodes.find((x) => x.node_id === id), c = caps.node_id === id ? caps : null;
+             const a = plan.assignments.find((x) => x.node_id === id);
+             return { node_id: id, name: id, role: n?.role || "helper", ip: c?.network.addresses[0] || "",
+                      budget_mib: c ? gpuMib(c.devices) : Math.round((a?.usable_bytes || 0) / 2 ** 20),
+                      state: n?.state || "ACTIVE", online: true, rpc: hb.node_id === id ? `${hb.rpc_server.state} :${hb.rpc_server.port}` : "" };
+           }),
+           events: [{ at: new Date(ev.at), text: `${ev.kind} ${ev.node_id} ${ev.message}` }] };
+}
+
+// ---- render ----
+function render(v) {
+  $("state").textContent = v.state; $("state").className = "badge " + v.state;
+  $("model").textContent = v.model || "-"; $("endpoint").textContent = v.endpoint || "-";
+  $("mode").textContent = v.mode; $("updated").textContent = new Date().toLocaleTimeString();
+  $("machines").innerHTML = v.nodes.map((n) => {
+    const l = layersOf(v.plan, n.node_id);
+    const where = l ? (l.layers ? `layers ${l.layers[0]}-${l.layers[1]}` : "llama default split") + ` (${l.device})` : (n.role === "main" && v.plan ? "rest of layers (main GPU)" : "-");
+    return `<div class="card ${n.online === null ? "" : n.online ? "on" : "off"}"><div class="name">${esc(n.name)}</div>
+      <div class="row"><span class="dim">${esc(n.role)}</span><span class="mono">${esc(n.ip)}</span></div>
+      <div class="row"><span class="dim">GPU budget</span><span>${n.budget_mib ? (n.budget_mib / 1024).toFixed(1) + " GiB" : "-"}</span></div>
+      <div class="row"><span class="dim">state</span><b>${esc(n.state)}</b></div>
+      <div class="row"><span class="dim">rpc</span><span class="mono">${esc(n.rpc)}</span></div>
+      <div class="row"><span class="dim">holds</span><span>${esc(where)}</span></div></div>`;
+  }).join("");
+  // Layer bar: real ranges when the planner provides them, else equal segments in device order (llama.cpp decides).
+  const order = v.plan?.device_order || [];
+  const segs = order.map((d, i) => {
+    const a = (v.plan.assignments || []).find((x) => x.llama_device === d);
+    const span = a?.layers ? a.layers[1] - a.layers[0] + 1 : 1;
+    const name = a ? (v.nodes.find((n) => n.node_id === a.node_id)?.name || a.node_id) : "main";
+    return { label: `${name}${a?.layers ? ` · ${span} layers` : ""}`, span, color: COLORS[i % COLORS.length] };
+  });
+  $("bar").innerHTML = segs.map((s) => `<div style="flex:${s.span}; background:${s.color}">${esc(s.label)}</div>`).join("");
+  $("plan").textContent = v.plan ? `${v.plan.plan_id} · ${v.plan.strategy}${v.plan.assignments?.some((a) => a.layers) ? "" : " (layer counts decided by llama.cpp; WP-5 planner not wired yet)"}` : "no plan yet";
+  const evs = [...localEvents, ...v.events].sort((a, b) => b.at - a.at).slice(0, 40);
+  $("events").innerHTML = evs.map((e) => `<div><span class="dim mono">${e.at.toLocaleTimeString()}</span> ${esc(e.text)}</div>`).join("") || '<div class="dim">none yet</div>';
+}
+
+async function tick() {
+  if (!MOCK) {
+    let up = false;
+    try { up = (await fetch(`${LLAMA}/health`, { signal: AbortSignal.timeout(1500) })).ok; } catch {}
+    if (up !== llamaUp) localEvents.unshift({ at: new Date(), text: `llama-server ${up ? "up" : "down"} at ${LLAMA}` });
+    llamaUp = up;
+  }
+  try { render(MOCK ? await fromFixtures() : await (DIRECT ? Promise.reject() : fromSpacetime()).catch(() => fromLlamaOnly())); }
+  catch (e) { $("mode").textContent = "error: " + e.message; }
+}
+tick(); setInterval(tick, MOCK ? 5000 : 1000);
+
+// ---- chat: same numbers as crates/bench. TTFT = send -> first content delta (client clock);
+// tok/s = llama-server's own timings.predicted_per_second from the last streamed event. cache_prompt:false so repeats don't fake TTFT.
+$("ask").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const out = $("answer"); out.textContent = ""; out.classList.remove("dim");
+  $("ttft").textContent = $("tps").textContent = $("ntok").textContent = "…"; $("send").disabled = true;
+  const t0 = performance.now(); let first = null, n = 0;
+  try {
+    const r = await fetch(`${LLAMA}/v1/chat/completions`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: [{ role: "user", content: $("prompt").value }], max_tokens: 256, stream: true,
+                             cache_prompt: false, stream_options: { include_usage: true } }) });
+    if (!r.ok) throw new Error(`llama-server ${r.status}`);
+    const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += value;
+      const lines = buf.split("\n"); buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
+        const d = JSON.parse(line.slice(6));
+        const text = d.choices?.[0]?.delta?.content;
+        if (text) {
+          if (first === null) { first = performance.now() - t0; $("ttft").textContent = Math.round(first); }
+          n++; out.textContent += text; out.scrollTop = out.scrollHeight;
+          $("ntok").textContent = n; $("tps").textContent = (n / ((performance.now() - t0 - first) / 1000 || 1)).toFixed(1);
+        }
+        if (d.timings) { $("tps").textContent = d.timings.predicted_per_second.toFixed(1); $("ntok").textContent = d.timings.predicted_n; }
+      }
+    }
+  } catch (e) { out.textContent += `\n[error] ${e.message}`; }
+  $("send").disabled = false;
+};
+</script>
+</body>
+</html>
