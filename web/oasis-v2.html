@@ -582,7 +582,10 @@ async function liveAsk(prompt) {
   try {
     const r = await fetch(`${LIVE_LLAMA}/v1/chat/completions`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], stream: true, max_tokens: 256, stream_options: { include_usage: true } }),
+      body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], stream: true, max_tokens: 256, stream_options: { include_usage: true },
+        // WHY: Gemma 4 thinks first (reasoning_content); with thinking on, 256 tokens can end before any visible answer.
+        //      Verified on b8665 against the 12B pool (run-006, #45): no reasoning chunks, answer streams at once.
+        chat_template_kwargs: { enable_thinking: false } }),
     });
     if (!r.ok || !r.body) throw new Error(`llama-server ${r.status}`);
     const reader = r.body.getReader(), dec = new TextDecoder();
