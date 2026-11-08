@@ -1,0 +1,33 @@
+# CONCEPT: example preflight target list for `netcheck check --targets-file <this file>`.
+# WHY: WP-10 R10.2. Write the run's ports once per network; rerun before every launch (docs/network.md).
+# DEPENDS ON: the port plan in docs/network.md (O-17). The IPs are placeholders: replace them with the
+#      addresses each machine reports on the travel router (docs/network.md, "Find each machine's IP").
+# AFFECTS: nothing at runtime; copy it to targets.toml (not committed) and edit.
+#
+# Run from main (the Mac that runs llama-server and SpacetimeDB). Each helper needs rpc-server running for
+# its 50052 row to pass, and `netcheck serve` running for its 50060 row to pass.
+
+[[target]]
+label = "mac-a rpc-server"
+addr  = "192.168.8.11:50052"
+
+[[target]]
+label = "mac-a netcheck"
+addr  = "192.168.8.11:50060"
+
+[[target]]
+label = "dell rpc-server"
+addr  = "192.168.8.12:50052"
+
+[[target]]
+label = "dell netcheck"
+addr  = "192.168.8.12:50060"
+
+# Run these two from a helper (they listen on main):
+# [[target]]
+# label = "main spacetimedb"
+# addr  = "192.168.8.10:3000"
+#
+# [[target]]
+# label = "main llama-server"
+# addr  = "192.168.8.10:8080"
