@@ -81,13 +81,13 @@
   <p>Convey that this is one model server made of three laptops. Name the machines and what each holds: main has the model file and coordinates, and the two helpers each hold a block of the model's layers in GPU memory. For example: "Each of these laptops holds part of one model. None of them could hold all of it."</p>
 
   <span class="cue">Type a question in the chat. Talk while it streams.</span>
-  <p>Explain the path a single token takes: through main's layers, across the cable to the first helper, then the second, and back. Each hop takes under a millisecond. Then point at the first-token time and the tokens per second as they appear.</p>
+  <p>Explain the path a single token takes: through main's layers, across the cable to the first helper, then the second, and back. Each hop takes under a millisecond. Point at the light packets moving along the wires: "each light is a token crossing from one laptop to the next." Then point at the first-token time and the tokens per second as they appear.</p>
 
   <span class="cue">Screen: events or the SpacetimeDB tables.</span>
-  <p>This is the part we built, so go into detail here. Walk through how the pool assembled itself: agents registered as rows, heartbeats every second, the coordinator wrote a plan and commands as rows, the agents carried them out, and the state moved from EMPTY to SERVING. Stress two points: no one ran commands by hand on the helpers, and the database refuses invalid state changes.</p>
+  <p>This is the part we built, so go into detail here. Walk through how the pool assembled itself: agents registered as rows, heartbeats every second, the coordinator wrote a plan and commands as rows, the agents carried them out, and the state moved from EMPTY to SERVING. Stress two points: no one ran commands by hand on the helpers, and the database refuses invalid state changes. For example: "There is no server in the middle. The database is the cluster. Every machine is a row, every order is a row."</p>
 
-  <span class="cue">Only if it worked in rehearsal: live join (or a model switch). Never cold-load the 26B in front of a judge.</span>
-  <p>Restart one helper's agent and narrate the rows as they appear: it registers, the coordinator re-plans, commands go out, and the pool reaches SERVING again. If this wasn't rehearsed, scroll back through the event history and narrate the last bring-up from it. End by mentioning recovery: if a laptop drops, the coordinator re-plans on the remaining machines automatically. Then hand over to Aayo for the numbers.</p>
+  <span class="cue">Show it working, live. No machine leaves, no agent restarts, no model load in front of a judge.</span>
+  <p>Click "who holds which layers" in the SQL box and point at the heartbeat sequence numbers ticking: the control plane answers live. Ask one more question in the chat if time allows. Then scroll the event history and narrate how the pool assembled itself: registered, planned, commands out, LAUNCHING, SERVING. Mention joining and recovery in words only: a new laptop joins while the pool keeps answering, and if one drops, Oasis re-plans on the rest and answers again in about 30 seconds. Then hand over to Aayo for the numbers.</p>
 </section>
 
 <section id="numbers" class="aayo">
