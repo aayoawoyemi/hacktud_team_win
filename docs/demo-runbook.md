@@ -54,7 +54,8 @@ the layers they receive.
   `spacetime_uri = "http://192.168.8.113:3000"`, `spacetime_db = "pool"`, `rpc_bind = "0.0.0.0"`, `rpc_cache = true`.
 - main `coordinator.toml` (from `crates/coordinator/coordinator.example.toml`): `spacetime_uri =
   "http://127.0.0.1:3000"`, `model_id`/`model_path` = the 12B, `public_host = "192.168.8.113"`, `min_helpers = 2`,
-  `ready_timeout_s = 900` (the 26B cold load took 303 s), and a `[models]` table with the 12B and 26B ids → paths.
+  `ready_timeout_s = 900` (the 26B cold load took 303 s), **`extra_args = ["--no-mmap"]`** (plus `flash_attn = "on"`,
+  `"-ctk","q8_0","-ctv","q8_0"` as in B3; without `--no-mmap` the 26B stalls on the 16 GB M3), and a `[models]` table with the 12B and 26B ids → paths.
   First run prints an `add_admin` command: run it once.
 
 **Dashboard:** `http://192.168.8.174:8000/web/oasis-v2.html?stdb=http://192.168.8.113:3000&llama=http://192.168.8.113:8080`
@@ -81,7 +82,7 @@ layers. VERIFY how much a warm switch saves (cold 12B → 26B = 303 s).
 | 12B, one M5 Air alone | ~16 tok/s cold, **~8-9 tok/s sustained** (fanless; throttles after ~1.5 min) | night-20261108-0408 |
 | 12B, 3-Mac pool (FA + q8 KV) | **~11 tok/s, flat over 5.5 min** (TTFT 0.6-0.7 s short/long) | p4-20261108-0150-existing-fa-q8 (#54) |
 | ngram speculative decoding, rewrite task, one Air | **1.6-1.7x** (edit: 7.2 → 12.4, 9 → 14.5 tok/s; 79% draft acceptance); no gain on new text | night-20261108-0329 / -0408 |
-| 26B on the 3-Mac pool (B3) | loads + serves on b8665 (cold 303 s); tok/s/TTFT: **P4 posting** | #11 |
+| **26B on the 3-Mac pool (B3)** | **12.5 tok/s (12.1-12.6), flat over 5 min; TTFT 0.6 s**; 9/9 ok; FA + q8 KV + `--no-mmap`; M3 5718 MiB, each M5 9941 MiB | p4-26b-final (#57) |
 | 26B + ngram (B5) | quote only if faster than B3 | #11 |
 
 Honest framing: cold, one Air is faster on the 12B; sustained, three Airs beat one throttled Air (~11 vs 8-9), with
@@ -103,6 +104,7 @@ the caveat that the pool's main was the M3 and had FA + q8 KV on. The 26B is the
 | a stale model loads after a coordinator restart | old `model_request` row | fixed in #51 review (requests before start are ignored); VERIFY on main |
 | `E_PORT_IN_USE` on a helper | hand-started rpc-server (rule 4) | stop it; the agent starts its own |
 | 26B launch times out | cold load > `ready_timeout_s` | `ready_timeout_s = 900`, pre-warm |
+| 26B SERVING but no answer ever completes; kernel log `IOGPUCommandDescriptor::prepare … 0xE00002BE` | main mmaps the whole 25.6 GB file on a 16 GB Mac; Metal stalls | `--no-mmap` in main's `extra_args` (B3 fix, P4 + P1) |
 
 **Fallback if the tooling fails on stage:** by hand, as in run-002 (`test-runs/`): `rpc-server -H 0.0.0.0 -p 50052
 -d MTL0 -c` on each helper (Terminal), then on main `llama-server -m <gguf> --rpc 192.168.8.174:50052,192.168.8.204:50052
