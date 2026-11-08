@@ -1,0 +1,607 @@
+<!doctype html>
+<!-- CONCEPT: The Oasis dashboard: Joseph's accepted multiplexer / Graphite / SF Mono design (design/oasis-preview,
+         commit f10e8c6) on LIVE pool data. Polls SpacetimeDB (node, heartbeat, cluster_status, event) and main's
+         llama-server every second; `ask <question>` streams an answer through the pool with TTFT and tok/s.
+WHY: Aayo (Sun 12:00am): real data on the new frontend. Data access follows #32 (SpacetimeDB HTTP SQL, CORS open,
+     anonymous reads). #33 rule: nothing on screen says FAILED.
+DEPENDS ON: Open on any machine that can reach main: web/oasis.html?stdb=http://<main>:3000&llama=http://<main>:8080
+            (defaults: this page's host, db `pool`). ?main_ram=24&main_gpu=17.8 when main runs no agent.
+            ?fixture=1 = the original fixture preview. ?ask=... asks one question on load.
+AFFECTS: Display only; never calls a reducer. The capacity panel and join preview remain estimates/previews. -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Oasis terminal dashboard. Multiplexer, Graphite and SF Mono with inspector-based model controls. Interactive design preview; fixture data only."><title>Oasis / nodes</title><style>
+/* CONCEPT: Terminal layout alternatives, with exclusively OKLCH explicit colors.
+WHY: Compare operational hierarchy before palette/type selection; no LUMA imitation.
+DEPENDS ON: System monospace fonts and native controls. No remote assets.
+AFFECTS: Responsive layout, selected-node inspector and phase-one choice controls. */
+:root{color-scheme:dark;--bg:oklch(.105 0 0);--surface:oklch(.13 0 0);--raised:oklch(.165 0 0);--line:oklch(.29 0 0);--faint:oklch(.215 0 0);--ink:oklch(.89 0 0);--secondary:oklch(.74 0 0);--muted:oklch(.63 0 0);--dim:oklch(.48 0 0);--accent:oklch(.78 .105 160);--warning:oklch(.8 .11 85);--negative:oklch(.75 .12 30);--mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:12px/1.55 var(--mono);-webkit-font-smoothing:antialiased}button,input,select{font:inherit}button,a,input,select{touch-action:manipulation}button{cursor:pointer;color:inherit;background:none;border:0}a{color:inherit;text-decoration:none}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:1px solid var(--accent);outline-offset:4px}button:disabled{opacity:.4;cursor:default}[hidden]{display:none!important}h1,h2,p{margin:0}h1,h2,strong{font-weight:400}button:hover{color:var(--accent)}.skip{position:fixed;top:-100px;left:15px;background:var(--ink);color:var(--bg);padding:10px;z-index:30}.skip:focus{top:10px}.terminal-shell{margin:28px auto 0;width:calc(100% - 72px);max-width:1530px;border:1px solid var(--line);background:var(--surface)}header{height:53px;display:flex;gap:22px;align-items:center;padding:0 20px;border-bottom:1px solid var(--line)}.wordmark{font-size:16px;letter-spacing:-.7px}.wordmark>span{color:var(--accent)}.path{color:var(--muted);font-size:10px}.environment{margin-left:auto;color:var(--muted);font-size:9px;display:flex;gap:8px;align-items:center}i{display:inline-block;width:5px;height:5px;background:var(--accent);border-radius:50%;flex:none}.environment i,footer i{background:var(--warning)}.environment>span{color:var(--dim);margin:0 5px}.help-button{color:var(--secondary);border:1px solid var(--line);width:23px;height:23px;font-size:11px}nav{height:37px;display:flex;align-items:stretch;border-bottom:1px solid var(--line);padding:0 14px;gap:8px}nav>button,nav>.active-tab{display:flex;align-items:center;font-size:10px;padding:0 12px;color:var(--muted);border-right:1px solid var(--faint)}nav>.active-tab{color:var(--ink);border-bottom:1px solid var(--accent);margin-bottom:-1px}nav>button:hover{color:var(--ink)}.spacer{flex:1}#session-count{font-size:9px;align-self:center;color:var(--secondary);padding-right:8px}.workspace{display:grid;grid-template-columns:1fr;position:relative}.node-stage{min-height:540px;position:relative;display:flex;flex-direction:column}.stage-heading{display:flex;justify-content:space-between;align-items:center;margin:25px 28px 0;gap:15px;position:relative;z-index:1}h1{font-size:13px}.stage-heading p{font-size:10px;color:var(--muted);margin-top:5px}.label{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px}.topology{position:relative;width:100%;max-width:1000px;height:390px;margin:0 auto;flex:1;min-height:390px}.connections{position:absolute;inset:0;width:100%;height:100%;fill:none;stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}.extra-link{display:none}.has-extra .extra-link{display:block}.node{position:absolute;text-align:left;background:var(--surface);border:1px solid var(--line);width:204px;padding:12px 14px;transform:translate(-50%,-50%);color:var(--secondary);border-radius:0}.node:hover{border-color:var(--muted);color:var(--ink)}.node[aria-pressed="true"]{border-color:var(--accent)}.node[aria-pressed="true"] .node-name{color:var(--accent)}.node-main{top:33%;left:50%}.node-helper-1{top:77%;left:24.5%}.node-helper-2{top:77%;left:75.5%}.node-helper-3{top:89%;left:50%}.node-id{font-size:8px;letter-spacing:.5px;color:var(--muted)}.node-state{float:right;color:var(--accent);font-size:8px}.node-name{display:block;font-size:13px;color:var(--ink);margin:8px 0 10px;letter-spacing:-.2px}.node-bottom{display:flex;justify-content:space-between;font-size:9px;color:var(--muted)}.node-bottom strong{color:var(--secondary)}.node-marker{display:inline-block;width:4px;height:4px;background:var(--accent);vertical-align:middle;margin-right:5px}.map-label{position:absolute;left:50%;transform:translateX(-50%);font-size:8px;color:var(--dim);letter-spacing:.4px;pointer-events:none}.main-label{top:12%}.helper-label{top:55%;background:var(--surface);padding:0 10px}.map-origin,.map-direction{position:absolute;bottom:9px;font-size:8px;color:var(--muted)}.map-origin{left:28px}.map-direction{right:28px}.stage-status{display:flex;justify-content:space-between;gap:12px;padding:15px 28px;border-top:1px solid var(--faint);color:var(--muted);font-size:9px;margin-top:15px}.stage-status>span:first-child{display:flex;align-items:center;gap:7px}.stage-status b{font-weight:400;color:var(--secondary)}.stage-status em{font-style:normal;color:var(--dim);margin:0 7px}.stage-status small{margin-left:12px;color:var(--dim);font-size:8px}.model-dock{border-top:1px solid var(--line);display:grid;grid-template-columns:1.4fr .7fr 1fr 1.3fr auto;align-items:center;min-height:85px;gap:24px;padding:16px 28px;grid-column:1/-1}.dock-label{display:block;color:var(--muted);font-size:8px;margin-bottom:7px}.dock-model{text-align:left;padding:0}.dock-model strong{font-size:11px}.dock-model small{font-size:8px;color:var(--muted);margin-left:8px}.dock-model small>span{color:var(--accent);margin-left:6px}.model-dock strong{font-size:10px}.fit{color:var(--accent)}.budget-track{height:2px;background:var(--faint);margin-top:8px;max-width:170px}.budget-track>span{display:block;height:100%;width:52%;background:var(--secondary)}.action{border:1px solid var(--line);padding:9px 11px;font-size:9px;color:var(--secondary);white-space:nowrap}.action:hover{border-color:var(--accent);color:var(--accent)}kbd{font:8px var(--mono);color:var(--muted);margin-left:10px}.command-line{min-height:43px;display:flex;align-items:center;gap:9px;padding:9px 20px;border-top:1px solid var(--line);background:var(--bg)}.command-line label{font-size:10px;white-space:nowrap}.command-line label>span{color:var(--accent)}.command-line input{font:10px var(--mono);border:0;background:var(--bg);color:var(--ink);min-width:0;flex:1;padding:4px;outline-offset:0}.command-line input::placeholder{color:var(--dim)}.command-line button{font-size:14px;color:var(--muted)}#command-response{font-size:8px;color:var(--muted);max-width:40%;text-align:right}footer{display:flex;align-items:center;gap:22px;min-height:28px;padding:6px 20px;border-top:1px solid var(--line);font-size:8px;color:var(--muted)}footer>span:first-child{display:flex;gap:6px;align-items:center}.status-keys{margin-left:auto}.status-keys>span{margin:0 10px}.directory,.session-pane,.inspector{display:none}.pane-caption{min-height:35px;padding:10px 15px;border-bottom:1px solid var(--line);font-size:9px;color:var(--secondary);display:flex;gap:10px;align-items:center}.pane-caption>span{color:var(--muted);font-size:8px;margin-left:auto}.pane-caption button{color:var(--muted);font-size:14px;padding:0}.inspector{border-left:1px solid var(--line)}.inspector-content{padding:23px 19px}.inspect-heading{display:flex;justify-content:space-between;align-items:center;gap:10px}.inspector h2{font-size:13px}.state{font-size:8px;color:var(--accent);white-space:nowrap}.state i{width:4px;height:4px;margin-right:4px}.muted{font-size:8px;color:var(--muted);margin-top:8px;line-height:1.7}dl{margin:25px 0 0;display:grid;grid-template-columns:1fr auto;gap:10px 8px;font-size:9px}dt{color:var(--muted)}dd{margin:0;color:var(--secondary);text-align:right}.inspect-section{display:flex;justify-content:space-between;border-top:1px solid var(--faint);padding-top:18px;margin-top:25px;font-size:9px;color:var(--secondary)}.inspect-section>span{color:var(--muted);font-size:8px}.inspect-section+dl{margin-top:17px}details{font-size:9px;color:var(--muted);margin:25px 0 0;border-top:1px solid var(--faint);padding-top:14px}summary{display:flex;justify-content:space-between;cursor:pointer;list-style:none;color:var(--secondary)}summary::-webkit-details-marker{display:none}details[open] summary>span{transform:rotate(45deg)}details p{font-size:9px;line-height:1.8;margin-top:12px}.text-button{font-size:9px;color:var(--muted);padding:0;text-align:left}.text-button:hover{color:var(--ink)}.inspector .text-button{margin-top:30px}.monitor{display:none}.review-bar{display:flex;align-items:center;gap:35px;max-width:1530px;width:calc(100% - 72px);margin:24px auto 32px;position:relative}.phase-label{min-width:150px}.phase-label>span{display:block;font-size:8px;letter-spacing:1px;color:var(--muted);margin-bottom:5px}.phase-label strong{font-size:12px}.layout-options{display:flex;gap:6px;flex:1}.layout-options button{display:grid;grid-template-columns:19px 1fr;text-align:left;column-gap:8px;row-gap:4px;border:1px solid var(--line);padding:11px 13px;min-width:145px;background:var(--bg);color:var(--secondary)}.layout-options button>span{grid-row:1/3;align-self:center;font-size:11px;color:var(--muted)}.layout-options button>strong{font-size:10px}.layout-options button>small{font-size:8px;color:var(--muted)}.layout-options button.chosen{border-color:var(--accent);background:var(--surface)}.layout-options button.chosen>span{color:var(--accent)}.review-actions{display:flex;gap:22px;align-items:center;margin-left:auto}.choose{padding:10px 13px;background:var(--ink);color:var(--bg);font-size:10px;border:1px solid var(--ink);white-space:nowrap}.choose:hover{background:var(--accent);border-color:var(--accent);color:var(--bg)}.choose>span{margin-left:15px}#choice-feedback{position:absolute;left:0;right:0;top:calc(100% + 12px);font-size:10px;color:var(--accent);padding-bottom:22px}.selection-open .workspace{grid-template-columns:minmax(0,1fr) 285px}.selection-open .inspector{display:block}.selection-open .topology{max-width:900px}.selection-open .node{width:180px}.selection-open .stage-heading .label{display:none}
+/* B: the node list is the primary object, in a process-monitor structure. */
+body[data-layout="monitor"] .topology{display:none}body[data-layout="monitor"] .monitor{display:flex;flex-direction:column;margin:auto 28px;width:calc(100% - 56px);padding:45px 0;justify-content:center;flex:1}.monitor-command{font-size:13px;color:var(--ink);margin-bottom:27px}.monitor-command>span{color:var(--accent);margin-right:10px}.monitor-group{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:10px;font-size:9px;color:var(--muted)}.monitor-group>span:first-child{color:var(--secondary)}table{width:100%;border-collapse:collapse;text-align:left}th{color:var(--muted);font-size:8px;font-weight:400;padding:13px 8px;border-bottom:1px solid var(--faint);white-space:nowrap}td{font-size:10px;padding:16px 8px;border-bottom:1px solid var(--faint);color:var(--secondary);white-space:nowrap}th:first-child,td:first-child{padding-left:9px}th:nth-child(n+4),td:nth-child(n+4){text-align:right}td:last-child{padding-right:10px}tr.selected{background:var(--raised)}tr.selected td:first-child{box-shadow:inset 2px 0 var(--accent)}.table-node{padding:0;text-align:left;display:block;width:100%;color:var(--ink);font-size:10px}.table-node small{font-size:8px;color:var(--muted);margin-right:12px}.ready{color:var(--accent);font-size:9px}.table-budget{display:inline-block;width:45px;height:2px;background:var(--line);margin-left:10px;vertical-align:middle}.table-budget>span{display:block;background:var(--secondary);height:100%}.monitor-total{display:flex;justify-content:space-between;gap:15px;font-size:9px;margin-top:20px;color:var(--muted)}.monitor-total strong{margin-left:20px;color:var(--ink)}.monitor-hint{font-size:8px;color:var(--dim);margin-top:27px}.monitor-hint>span{margin-left:20px}.table-scroll{overflow:auto}
+/* C: directory, topology and persistent inspector, like a multiplexer workspace. */
+body[data-layout="multiplexer"] .workspace{grid-template-columns:170px minmax(0,1fr) 265px}body[data-layout="multiplexer"] .directory{display:flex;flex-direction:column;grid-column:1;border-right:1px solid var(--line)}body[data-layout="multiplexer"] .node-stage{grid-column:2;min-height:480px}body[data-layout="multiplexer"] .inspector{display:block;grid-column:3}body[data-layout="multiplexer"] .node{width:158px;padding:10px 11px}body[data-layout="multiplexer"] .node-name{font-size:11px}body[data-layout="multiplexer"] .node-bottom{font-size:8px}body[data-layout="multiplexer"] .stage-heading{margin:20px 20px 0}body[data-layout="multiplexer"] .stage-heading .label{display:none}body[data-layout="multiplexer"] .topology{min-height:330px;height:330px}body[data-layout="multiplexer"] .stage-status{padding:13px 20px;font-size:8px}body[data-layout="multiplexer"] .stage-status small{display:none}body[data-layout="multiplexer"] .session-pane{display:block;grid-column:1/-1;border-top:1px solid var(--line)}.events-open .session-pane{display:block;grid-column:1/-1;border-top:1px solid var(--line)}body[data-layout="multiplexer"] .model-dock{min-height:75px}.directory-node{display:flex;flex-direction:column;align-items:flex-start;gap:5px;padding:15px 14px;color:var(--secondary);width:100%;border-bottom:1px solid var(--faint);font-size:9px}.directory-node>small{color:var(--muted);font-size:8px}.directory-node[aria-pressed="true"]{background:var(--raised);box-shadow:inset 2px 0 var(--accent);color:var(--accent)}.directory-node>span>em{font-style:normal;color:var(--muted);margin-right:6px}.directory-foot{margin-top:auto;padding:20px 14px;font-size:8px;color:var(--muted);line-height:1.9}.directory-foot>strong{color:var(--secondary)}#event-log{padding:12px 18px;font-size:9px;color:var(--secondary);display:flex;flex-direction:column;gap:5px;max-height:112px;overflow:auto}.log-row{display:flex;gap:18px}.log-row time{color:var(--muted);font-size:8px;white-space:nowrap}.log-row>span{overflow-wrap:anywhere}
+dialog{width:480px;max-width:calc(100% - 32px);max-height:calc(100% - 48px);background:var(--surface);color:var(--ink);border:1px solid var(--line);padding:0 24px 25px;border-radius:0;overflow:auto}dialog::backdrop{background:oklch(.03 0 0/.85)}.dialog-heading{display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:1px solid var(--line);padding:17px 0;margin-bottom:19px}.dialog-heading h2{font-size:12px}.dialog-heading button{font-size:22px;color:var(--muted);padding:0 0 0 10px}.note{font-size:10px;color:var(--muted);line-height:1.8;margin:14px 0 20px}dialog label{display:block;font-size:9px;color:var(--muted);margin:19px 0 8px}dialog select,dialog input{border:1px solid var(--line);background:var(--bg);color:var(--ink);padding:10px;width:100%;font-size:10px;border-radius:0;min-height:38px}.dialog-action{display:block;width:100%;text-align:left;margin-top:25px}.fit-explanation{border-left:2px solid var(--accent);padding:10px 14px;margin-top:25px;font-size:10px;color:var(--secondary);line-height:1.8}.fit-explanation strong{display:block;color:var(--accent);font-size:11px;margin-bottom:8px}.fit-explanation.negative{border-color:var(--negative)}.fit-explanation.negative strong{color:var(--negative)}.help-list{margin:0;grid-template-columns:45px 1fr;gap:15px}.help-list dt{color:var(--accent)}.help-list dd{text-align:left}.help-list+p{margin-top:30px}pre{font:11px/1.9 var(--mono);color:var(--secondary);margin:0;padding:14px;background:var(--bg);border:1px solid var(--faint)}#research-dialog{width:620px}#research-dialog p,.research-list{font-size:11px;line-height:1.9;color:var(--secondary);margin:18px 0}.research-list{padding-left:18px}.research-list li{margin-bottom:17px}.research-list strong{color:var(--ink)}.research-list a{color:var(--accent);white-space:nowrap}.research-list a:hover{text-decoration:underline}#join-stages{list-style:none;padding:0;margin:20px 0;font-size:10px}#join-stages li{display:flex;gap:14px;padding:10px 0;border-bottom:1px solid var(--faint);color:var(--muted)}#join-stages .done{color:var(--secondary)}#join-stages .current{color:var(--accent)}#join-contribution{font-size:10px;color:var(--secondary);line-height:1.8}
+@media(min-width:1600px){.terminal-shell{margin-top:45px}.node-stage{min-height:610px}.topology{min-height:450px}.review-bar{margin-top:30px}}
+@media(max-width:1180px){.terminal-shell,.review-bar{width:calc(100% - 40px)}.model-dock{gap:18px;grid-template-columns:1.2fr .6fr 1fr 1.2fr}.model-dock>.action{display:none}.review-bar{gap:20px}.layout-options button{min-width:125px;padding:10px}.review-actions{gap:16px}.review-actions .text-button{display:none}.phase-label{min-width:130px}.selection-open .workspace{grid-template-columns:minmax(0,1fr) 250px}.selection-open .node{width:160px}.selection-open .node-bottom{font-size:8px}body[data-layout="multiplexer"] .workspace{grid-template-columns:140px minmax(0,1fr) 230px}body[data-layout="multiplexer"] .node{width:133px;padding:10px}body[data-layout="multiplexer"] .node-name{font-size:10px}body[data-layout="multiplexer"] .node-bottom{display:block;line-height:1.9}body[data-layout="multiplexer"] .stage-status{flex-wrap:wrap}.inspector-content{padding:20px 15px}.inspect-heading{align-items:flex-start;flex-direction:column;gap:7px}.path{font-size:9px}}
+@media(max-width:900px){.terminal-shell,.review-bar{width:calc(100% - 28px)}.terminal-shell{margin-top:14px}.review-bar{flex-wrap:wrap;gap:17px}.phase-label{width:100%;display:flex;align-items:center;gap:15px}.phase-label>span{margin:0}.layout-options{flex:1;gap:5px}.layout-options button{min-width:115px;flex:1;padding:10px}.choose{padding:11px}.review-actions{margin-left:0}.node{width:180px}.selection-open .workspace{grid-template-columns:minmax(0,1fr) 220px}.selection-open .node{width:140px}.selection-open .node-name{font-size:11px}.selection-open .node-bottom{display:block;font-size:8px;line-height:1.8}.selection-open .stage-status{flex-direction:column;font-size:8px}.selection-open .stage-heading p{font-size:8px}.selection-open .stage-heading{margin:20px 18px 0}.map-direction,.map-origin,.label{font-size:7px}.model-dock{padding:17px 20px;gap:15px}.dock-budget strong{font-size:9px}footer{font-size:7px;gap:15px}#command-response{font-size:7px}body[data-layout="multiplexer"] .workspace{grid-template-columns:120px minmax(0,1fr)}body[data-layout="multiplexer"] .inspector{grid-column:1/-1;border-left:0;border-top:1px solid var(--line)}body[data-layout="multiplexer"] .inspector-content{display:grid;grid-template-columns:1fr 1fr 1fr;column-gap:25px;padding:20px}body[data-layout="multiplexer"] .inspect-heading{grid-column:1}body[data-layout="multiplexer"] #inspect-hardware{grid-column:1}body[data-layout="multiplexer"] #inspect-memory{grid-column:2;grid-row:1/4;margin:0}body[data-layout="multiplexer"] .inspect-section{display:none}body[data-layout="multiplexer"] #inspect-allocation{grid-column:3;grid-row:1/4;margin:0}body[data-layout="multiplexer"] .inspector details{grid-column:1/-1;margin-top:20px}body[data-layout="multiplexer"] .inspector .text-button{display:none}body[data-layout="multiplexer"] .node{width:155px}body[data-layout="multiplexer"] .node-bottom{display:flex}body[data-layout="multiplexer"] .node-name{font-size:11px}.directory-node{font-size:8px;padding:15px 10px}.directory-node>small{font-size:7px}.pane-caption{padding:10px;font-size:8px}}
+@media(max-width:650px){header{padding:0 13px;height:48px;gap:15px}.path{font-size:8px}.environment{font-size:7px;max-width:145px;flex-wrap:wrap;gap:4px;justify-content:flex-end}.environment>span{display:none}.environment i{height:4px;width:4px}.help-button{width:22px;height:22px}nav{padding:0 7px;gap:0}nav>button,nav>.active-tab{font-size:9px;padding:0 10px}#session-count{font-size:7px;padding-right:2px}.stage-heading{margin:22px 16px 0}.stage-heading p{font-size:8px}.stage-heading .label{display:none}.node-stage{min-height:510px}.topology{min-height:355px;height:355px}.node{width:142px;padding:10px}.node-name{font-size:11px;margin:7px 0}.node-id,.node-state{font-size:7px}.node-bottom{font-size:7px}.map-label{font-size:7px}.node-helper-1{left:25%}.node-helper-2{left:75%}.map-origin{left:16px;font-size:6px}.map-direction{right:16px;font-size:6px}.stage-status{padding:13px 16px;flex-direction:column;gap:8px;font-size:8px}.stage-status small{font-size:7px}.model-dock{grid-template-columns:1.2fr 1fr;gap:20px;padding:17px 16px}.dock-model strong{font-size:10px}.dock-model small{font-size:7px;margin-left:5px}.dock-label{font-size:7px}.model-dock>div:nth-child(2){justify-self:end;text-align:right}.dock-fit strong{font-size:9px}.dock-budget{text-align:right}.budget-track{margin-left:auto}.command-line{padding:10px 13px;gap:5px;flex-wrap:wrap}.command-line label,.command-line input{font-size:9px}#command-response{display:none}footer{padding:7px 13px;font-size:6px;gap:10px;flex-wrap:wrap}.status-keys{display:none}.review-bar{gap:12px;margin-top:20px;align-items:stretch}.layout-options{width:100%;flex:none;gap:5px}.layout-options button{min-width:0;flex:1;padding:10px 8px;grid-template-columns:13px 1fr;gap:4px}.layout-options button>strong{font-size:8px}.layout-options button>small{font-size:6px}.layout-options button>span{font-size:9px}.phase-label>strong{font-size:11px}.review-actions{margin-left:auto}.review-actions .text-button{display:block;font-size:8px}.choose{font-size:9px;padding:9px 12px}#choice-feedback{font-size:9px;line-height:1.8}.selection-open .workspace{grid-template-columns:1fr}.selection-open .inspector{grid-column:1/-1;border-left:0;border-top:1px solid var(--line)}.selection-open .node{width:142px}.selection-open .node-bottom{display:flex;font-size:7px}.selection-open .node-stage{min-height:510px}.selection-open .stage-heading p{font-size:8px}.selection-open .inspector-content{padding:18px}.selection-open .inspect-heading{flex-direction:row}.selection-open .inspector dl{font-size:10px}.selection-open .inspector .text-button{margin-top:20px}body[data-layout="monitor"] .monitor{margin:0 16px;width:calc(100% - 32px);padding:40px 0}table{min-width:600px}th{font-size:7px}td{font-size:9px}.monitor-command{font-size:11px}.monitor-group{font-size:7px}.monitor-total{font-size:8px;flex-direction:column;gap:8px}.monitor-hint{font-size:7px}body[data-layout="multiplexer"] .workspace{grid-template-columns:1fr}body[data-layout="multiplexer"] .directory{display:none}body[data-layout="multiplexer"] .node-stage{grid-column:1;min-height:490px}body[data-layout="multiplexer"] .node{width:142px}body[data-layout="multiplexer"] .inspector-content{display:block}body[data-layout="multiplexer"] #inspect-memory,body[data-layout="multiplexer"] #inspect-allocation{margin:20px 0}body[data-layout="multiplexer"] .inspect-section{display:flex}.log-row{gap:10px;font-size:8px}.log-row time{font-size:7px}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+/* Layer segments express actual fixture layer counts; no decorative graphing. */
+.allocation-strip{display:flex;gap:3px;margin-top:16px;grid-column:3}.allocation-strip button{border:1px solid var(--line);padding:5px 2px;font-size:7px;min-width:0;color:var(--muted)}.allocation-strip button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}.has-extra .topology{min-height:480px}.has-extra .node-helper-1,.has-extra .node-helper-2{top:63%}.has-extra .node-helper-3{top:86%}@media(min-width:651px) and (max-width:900px){body[data-layout="multiplexer"] .allocation-strip{grid-column:1/-1;margin-top:18px}}@media(min-width:901px) and (max-height:900px){.terminal-shell{margin-top:20px}.node-stage{min-height:430px}.topology{min-height:300px;height:300px}.review-bar{margin-top:18px}.stage-heading{margin-top:20px}.model-dock{min-height:76px;padding-top:13px;padding-bottom:13px}}
+body[data-layout="multiplexer"] #inspect-close{display:none}.has-extra[data-layout="multiplexer"] .topology{min-height:480px;height:480px}
+/* CONCEPT: Independent palette/type alternatives inside fixed layout C.
+   WHY: Joseph selected layout C; this phase must not silently select its visual treatment.
+   DEPENDS ON: OKLCH custom properties and installed macOS monospace fonts.
+   AFFECTS: Palette/type only. Node structure and behavior remain constant. */
+body[data-palette="graphite"]{--bg:oklch(.105 0 0);--surface:oklch(.13 0 0);--raised:oklch(.175 0 0);--line:oklch(.3 0 0);--faint:oklch(.22 0 0);--ink:oklch(.91 0 0);--secondary:oklch(.77 0 0);--muted:oklch(.65 0 0);--dim:oklch(.5 0 0);--accent:oklch(.88 0 0);--warning:oklch(.8 .07 85);--negative:oklch(.75 .1 30)}
+body[data-palette="phosphor"]{--bg:oklch(.105 .006 155);--surface:oklch(.135 .008 155);--raised:oklch(.18 .012 155);--line:oklch(.3 .018 155);--faint:oklch(.22 .01 155);--ink:oklch(.9 .012 155);--secondary:oklch(.77 .018 155);--muted:oklch(.65 .018 155);--dim:oklch(.5 .018 155);--accent:oklch(.79 .105 155);--warning:oklch(.81 .1 85);--negative:oklch(.75 .1 30)}
+body[data-palette="amber"]{--bg:oklch(.105 .006 75);--surface:oklch(.135 .008 75);--raised:oklch(.18 .012 75);--line:oklch(.3 .018 75);--faint:oklch(.22 .01 75);--ink:oklch(.91 .018 80);--secondary:oklch(.78 .025 80);--muted:oklch(.66 .025 80);--dim:oklch(.51 .025 80);--accent:oklch(.81 .105 80);--warning:oklch(.83 .08 65);--negative:oklch(.75 .1 30)}
+body[data-type="system"]{--mono:"SFMono-Regular","SF Mono",Consolas,"Liberation Mono",monospace}
+body[data-type="menlo"]{--mono:Menlo,Consolas,"Liberation Mono",monospace}
+body[data-type="monaco"]{--mono:Monaco,Menlo,Consolas,monospace}
+.phase-two{gap:32px;align-items:center}.phase-two .phase-label{min-width:180px}.phase-two .phase-label>span{font-size:7px;letter-spacing:.5px}.phase-label em{font-style:normal;color:var(--dim);margin:0 4px}.phase-label>small{display:block;font-size:8px;color:var(--muted);margin-top:7px}.visual-options{display:flex;flex-direction:column;gap:10px}.option-row{display:flex;gap:15px;align-items:center}.option-label{width:48px;font-size:8px;color:var(--muted)}.palette-options,.type-options{display:flex;gap:5px}.palette-options button,.type-options button{display:flex;align-items:center;gap:8px;border:1px solid var(--line);min-width:120px;padding:9px 10px;font-size:9px;color:var(--secondary);text-align:left}.palette-options button.chosen,.type-options button.chosen{background:var(--raised);border-color:var(--accent);color:var(--ink)}.palette-swatch{display:block;width:9px;height:9px;border:1px solid var(--muted)}.graphite-swatch{background:oklch(.88 0 0)}.phosphor-swatch{background:oklch(.79 .105 155)}.amber-swatch{background:oklch(.81 .105 80)}.type-options button>span{margin-left:5px;color:var(--ink)}.type-options button[data-type-choice="system"]{font-family:"SFMono-Regular",Consolas,monospace}.type-options button[data-type-choice="menlo"]{font-family:Menlo,Consolas,monospace}.type-options button[data-type-choice="monaco"]{font-family:Monaco,Menlo,monospace}
+@media(max-width:1180px){.phase-two{gap:20px}.phase-two .phase-label{min-width:150px}.palette-options button,.type-options button{min-width:110px;font-size:8px}.phase-two .review-actions .text-button{display:none}}
+@media(max-width:900px){.phase-two .phase-label{display:block;width:100%}.phase-two .phase-label>span{margin-bottom:6px}.phase-two .review-actions{margin-left:auto}.palette-options button,.type-options button{min-width:115px}}
+@media(max-width:650px){.phase-two .visual-options{width:100%;gap:8px}.phase-two .option-row{display:block}.option-label{display:block;margin-bottom:7px}.palette-options,.type-options{width:100%}.palette-options button,.type-options button{min-width:0;flex:1;padding:9px 7px;gap:6px;font-size:8px}.type-options button>span{margin-left:2px}.phase-two .review-actions .text-button{display:block}}
+/* CONCEPT: Compare three hosts for one shared model-controls subtree.
+   WHY: Keep accepted layout C and Graphite/SF Mono constant while choosing behavior.
+   DEPENDS ON: The same select elements and estimate state move between hosts.
+   AFFECTS: Model controls only; connected nodes remain the initial view. */
+#model-controls{min-width:0}#model-controls label{display:block;font-size:9px;color:var(--muted);margin:19px 0 8px}#model-controls select{border:1px solid var(--line);background:var(--bg);color:var(--ink);padding:10px;width:100%;max-width:100%;font-size:10px;border-radius:0;min-height:38px}.inline-model-panel{grid-column:1/-1;border-top:1px solid var(--line);padding:0 28px 24px}.inline-model-panel #model-controls{display:grid;grid-template-columns:1fr 1fr;gap:0 24px}.inline-model-panel .dialog-heading,.inline-model-panel .note,.inline-model-panel .fit-explanation,.inline-model-panel details,.inline-model-panel .dialog-action{grid-column:1/-1}.inline-model-panel .note{margin:0}.inline-model-panel .fit-explanation{margin-top:20px}.model-in-inspector .inspector>.pane-caption{display:none}#inspector-model-panel{padding:0 18px 20px}#inspector-model-panel .note{font-size:8px}#inspector-model-panel .dialog-heading h2{font-size:11px}#inspector-model-panel select{font-size:9px}#inspector-model-panel .fit-explanation{font-size:9px;margin-top:20px;padding:8px 10px}#inspector-model-panel .fit-explanation strong{font-size:10px}.phase-three .phase-label{min-width:200px}.phase-three .phase-label>span{font-size:7px;letter-spacing:.5px}.phase-three .layout-options button{min-width:125px}
+@media(max-width:1180px){.phase-three{gap:20px}.phase-three .phase-label{min-width:170px}.phase-three .phase-label strong{font-size:10px}.phase-three .layout-options button{min-width:110px}}
+@media(max-width:900px){.phase-three .phase-label{width:100%;display:block}.phase-three .phase-label>span{margin-bottom:6px}.phase-three .phase-label strong{font-size:12px}.phase-three .review-actions{margin-left:auto}}
+@media(max-width:650px){.phase-three .layout-options button{min-width:0}.phase-three .phase-label strong{font-size:11px}.inline-model-panel{padding:0 16px 20px}.inline-model-panel #model-controls{display:block}#inspector-model-panel{padding:0 18px 20px}}
+/* CONCEPT: Explicit connection status uses a semantic green dot plus text.
+   WHY: Connection state must remain distinct from selection and readiness.
+   DEPENDS ON: Node connection value; preview fixtures explicitly mark connected.
+   AFFECTS: Topology, directory, inspector, table and connected-node summary. */
+:root{--connected:oklch(.78 .14 145)}.connection-status{display:inline-flex;align-items:center;gap:5px;color:var(--secondary);font-size:8px;white-space:nowrap}.connection-dot{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--muted);flex:none;margin:0}.connection-status[data-connection="connected"] .connection-dot,[data-connection="connected"]>.connection-dot{background:var(--connected)}.connection-status[data-connection="connecting"] .connection-dot{background:var(--warning)}.connection-status.node-state{float:right;color:var(--secondary)}.directory-node .connection-status{font-size:8px}.state .connection-status .connection-dot{margin:0;width:5px;height:5px}
+/* CONCEPT: Keep connection and model readiness separate, then trace selection.
+   WHY: User selected status separation and node/link/layer highlighting.
+   DEPENDS ON: Explicit runtime labels and per-helper SVG paths.
+   AFFECTS: Preview clarity only; no runtime measurement or animation implied. */
+.node-model-status{display:block;margin-top:9px;padding-top:7px;border-top:1px solid var(--faint);font-size:8px;color:var(--muted)}.node-model-status strong{font-weight:400;color:var(--secondary)}.node-model-status[data-model-state="loading"] strong{color:var(--warning)}.node-model-status[data-model-state="serving"] strong{color:var(--ink)}.directory-node .directory-model{font-size:7px;color:var(--muted)}.inspect-model-runtime{display:grid;grid-template-columns:1fr auto;gap:7px;margin-top:19px;padding:12px 0;border-top:1px solid var(--faint);border-bottom:1px solid var(--faint);font-size:9px;color:var(--muted)}.inspect-model-runtime strong{font-size:9px;color:var(--secondary)}.inspect-model-runtime[data-model-state="loading"] strong{color:var(--warning)}.inspect-model-runtime small{grid-column:1/-1;font-size:8px;color:var(--muted)}.connections .topology-link{stroke:var(--line);stroke-width:1}.connections .topology-link[data-selected="true"]{stroke:var(--ink);stroke-width:1.5}.allocation-strip button[aria-pressed="true"]{background:var(--raised);border-color:var(--ink);color:var(--ink)}.runtime-cell{font-size:9px}
+@media(min-width:651px) and (max-width:900px){body[data-layout="multiplexer"] .inspect-model-runtime{grid-column:1;grid-row:3;margin-top:12px}body[data-layout="multiplexer"] #inspect-memory{grid-row:1/4}body[data-layout="multiplexer"] #inspect-allocation{grid-row:1/4}}
+
+</style></head>
+<body data-layout="multiplexer" data-palette="graphite" data-type="system" data-model-behavior="inspector"><a href="#workspace" class="skip">Skip to connected nodes</a>
+<div class="terminal-shell">
+<header><a class="wordmark" href="#workspace">oasis<span>_</span></a><span class="path">~/cluster/local</span><span class="environment"><i></i> fixture session <span>/</span> no cluster connected</span><button id="help-open" aria-label="Keyboard help" class="help-button">?</button></header>
+<nav aria-label="Workspace"><span class="active-tab">01 nodes</span><button id="model-tab" aria-controls="model-controls" aria-expanded="false">02 model</button><button id="events-tab">03 events</button><span class="spacer"></span><span id="session-count">3 connected / 3 nodes</span></nav>
+<main id="workspace" class="workspace">
+<aside class="directory"><div class="pane-caption">nodes <span id="directory-count">[3]</span></div><div id="directory"></div><p class="directory-foot">rpc order<br><strong>helpers → main</strong></p></aside>
+<section class="node-stage" aria-labelledby="nodes-title"><div class="stage-heading"><div><h1 id="nodes-title">Connected nodes</h1><p>Select a node to inspect its contribution.</p></div><span class="label">illustrative topology</span></div>
+<div class="topology"><svg id="topology-links" class="connections" viewBox="0 0 1000 500" preserveAspectRatio="none" aria-hidden="true"></svg><span class="map-label main-label">coordinator / main</span><span class="map-label helper-label">rpc helpers</span><div id="map-nodes"></div><span class="map-origin">topology: star</span><span id="selection-trace" class="map-direction" aria-live="polite">main-mac → 2 helper links</span></div>
+<div class="monitor"><div class="monitor-command"><span>$</span> oasis nodes --connected</div><div class="monitor-group"><span id="monitor-count">3 nodes</span><span>local pool / sample inputs</span></div><div class="table-scroll"><table><thead><tr><th>NODE</th><th>ROLE</th><th>CONNECTION</th><th>MODEL</th><th>RAM</th><th>GPU CAP</th><th>WEIGHT BUDGET</th></tr></thead><tbody id="node-table"></tbody></table></div><div class="monitor-total"><span>pool weight budget <strong id="monitor-budget">35.7 GiB</strong></span><span>after reserves, buffers and KV</span></div><p class="monitor-hint">↑ ↓ select node <span>Enter inspect</span></p></div>
+<div class="stage-status"><span id="nodes-status" data-connection="connected"><i class="connection-dot" aria-hidden="true"></i> 3 preview nodes connected</span><span>latency <b id="live-ttft">–</b> <em>/</em> generation <b id="live-tps">–</b> <small id="live-speed-note">not measured</small></span></div></section>
+<aside class="inspector" id="right-inspector" aria-labelledby="inspect-title"><div class="pane-caption">inspect <span id="inspect-id">[n01]</span></div><div class="inspector-content" id="node-inspector"><div class="inspect-heading"><h2 id="inspect-title">main-mac</h2><span class="state" id="inspect-connection"><span class="connection-status" data-connection="connected"><i class="connection-dot" aria-hidden="true"></i>connected</span></span></div><p id="inspect-hardware" class="muted"></p><div id="inspect-model-runtime" class="inspect-model-runtime"><span>model runtime</span><strong id="inspect-model-status">not loaded</strong><small id="inspect-loaded-model" hidden></small></div><dl id="inspect-memory"></dl><div class="inspect-section">planned allocation <span>estimate</span></div><div id="allocation-strip" class="allocation-strip" aria-label="Illustrative layer assignment in RPC device order"></div><dl id="inspect-allocation"></dl><details><summary>accounting details <span>+</span></summary><p id="inspect-explanation"></p><p>Equal-sized fixture layers. This is not a measured runtime placement.</p></details><button class="text-button" id="inspect-join">[j] preview a new node</button></div><div id="inspector-model-panel" hidden><div id="model-controls"><div class="dialog-heading"><h2 id="model-title">model / capacity</h2><button id="model-close" aria-label="Close model controls">×</button></div><p class="note">Fixture metadata. Context changes update the estimate.</p><div class="model-field"><label for="model-select">model</label><select id="model-select"><option value="qwen32">qwen2.5:32b / Q4_K_M / 18.5 GiB</option><option value="qwen14">qwen2.5:14b / Q4_K_M / 8.9 GiB</option><option value="qwen72">qwen2.5:72b / Q4_K_M / 44.3 GiB</option></select></div><div class="model-field"><label for="context-select">context / tokens</label><select id="context-select"><option value="2048">2,048</option><option value="4096" selected>4,096</option><option value="8192">8,192</option><option value="16384">16,384</option><option value="32768">32,768</option></select></div><div id="fit-explanation" class="fit-explanation" aria-live="polite"></div><details><summary>calculation <span>+</span></summary><p id="fit-calculation"></p><p>Aggregate capacity does not guarantee successful placement or loading.</p></details><button id="model-done" class="action dialog-action">return to nodes ↵</button></div></div></aside>
+<section class="session-pane"><div class="pane-caption">session <span>preview events</span></div><div id="event-log" role="log" aria-live="polite"></div></section>
+<section class="model-dock" aria-label="Model and capacity"><button id="model-open" class="dock-model" aria-controls="model-controls" aria-expanded="false"><span class="dock-label">model</span><strong id="dock-model">qwen2.5:32b</strong><small>Q4_K_M <span>[m]</span></small></button><div><span class="dock-label">context</span><strong id="dock-context">4,096</strong></div><div><span class="dock-label">capacity</span><strong id="dock-fit" class="fit">requires pool</strong></div><div class="dock-budget"><span class="dock-label">weights / available</span><strong id="dock-budget">18.5 / 35.7 GiB</strong><div class="budget-track"><span id="budget-fill"></span></div></div><button id="join-open" class="action">+ join preview <kbd>J</kbd></button></section>
+</main>
+<form id="command-form" class="command-line"><label for="command"><span>oasis@local</span> ~ $</label><input id="command" aria-label="Preview command. Type help for supported commands." placeholder="help" autocomplete="off" spellcheck="false"><button aria-label="Run preview command" type="submit">↵</button><span id="command-response" role="status">local preview only</span></form>
+<footer><span><i></i> SAMPLE DATA</span><span id="status-memory">64 GiB physical / 35.7 GiB weight capacity</span><span class="status-keys">[m] model <span>[j] join</span> [?] help</span></footer>
+</div>
+
+
+
+
+<dialog id="join-dialog" aria-labelledby="join-title"><div class="dialog-heading"><h2 id="join-title">join / preview</h2><button data-close="join-dialog" aria-label="Close joining preview">×</button></div><p class="note">No device discovery or runtime is connected.</p><form id="join-form"><label for="join-name">node name</label><input id="join-name" value="macbook-pro" required maxlength="30" pattern=".*\S.*"><label for="join-memory">memory configuration</label><select id="join-memory"><option value="24">24 GiB physical / 16 GiB GPU cap</option><option value="16">16 GiB physical / 10.7 GiB GPU cap</option></select><button type="submit" class="action dialog-action">discover sample node ↵</button></form><div id="join-progress" hidden><p id="join-contribution"></p><ol id="join-stages"></ol><button id="join-next" class="action dialog-action">check compatibility →</button></div></dialog>
+
+<dialog id="help-dialog" aria-labelledby="help-title"><div class="dialog-heading"><h2 id="help-title">keyboard / commands</h2><button data-close="help-dialog" aria-label="Close keyboard help">×</button></div><dl class="help-list"><dt>↑ ↓</dt><dd>select connected node</dd><dt>m</dt><dd>model and context controls</dd><dt>j</dt><dd>joining preview</dd><dt>?</dt><dd>keyboard help</dd><dt>Esc</dt><dd>close a dialog</dd></dl><p class="note">The prompt supports these local preview actions:</p><pre>help
+nodes
+inspect n01
+model qwen32
+context 8192
+join</pre><p class="note">No commands execute on a real machine.</p><button id="research-open" class="text-button">design decisions and research ↗</button></dialog>
+
+<dialog id="research-dialog" aria-labelledby="research-title"><div class="dialog-heading"><h2 id="research-title">design / rationale</h2><button data-close="research-dialog" aria-label="Close research notes">×</button></div><p>The first question is “which nodes are connected?” The first screen answers it. Model controls, joining and logs stay available without competing with that view.</p><ul class="research-list"><li><strong>Task-first hierarchy.</strong> Remove competing information; disclose secondary details when needed. <a href="https://www.nngroup.com/articles/aesthetic-minimalist-design/" target="_blank" rel="noreferrer">NN/g ↗</a></li><li><strong>Aligned, compact data.</strong> Keep numeric columns aligned and give selected rows a separate detail view. <a href="https://www.carbondesignsystem.com/building-blocks/core/components/data-table/guidelines" target="_blank" rel="noreferrer">Carbon ↗</a></li><li><strong>Useful terminal conventions.</strong> Concise feedback and discoverable help. Keyboard commands supplement buttons. This web layout is not a literal CLI. <a href="https://clig.dev/" target="_blank" rel="noreferrer">CLI Guidelines ↗</a></li><li><strong>One color model.</strong> All explicit colors use OKLCH. Color-space choice does not automatically ensure contrast. <a href="https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Values/color_value/oklch" target="_blank" rel="noreferrer">MDN ↗</a></li></ul><p>Project constraints: no marketing headline, decorative chart, glass, glow, scanlines, typewriter effects, copied LUMA identity or invented live performance. These are choices for this tool, not a universal formula for avoiding generic design.</p><p class="note">Selected by Joseph: layout C (Multiplexer), Graphite, SF Mono and model controls in the inspector. Connected nodes remain the opening view. Selecting a node returns to its details. This clean preview has no design-choice controls. Live integration is still pending.</p></dialog>
+<script>
+const params = new URLSearchParams(location.search);
+const LIVE = !params.has('fixture');
+// CONCEPT: Small, deterministic design-fixture engine, independent of the DOM.
+// WHY: Keep the first design fast and internally consistent without fabricating live telemetry.
+// DEPENDS ON: Illustrative GiB inputs; follows WP-5's budget concepts, not a production planner.
+// AFFECTS: Summary, model comparison, context changes and illustrative equal-layer placement.
+const colors = ['oklch(0.82 0 0)', 'oklch(0.68 0 0)', 'oklch(0.54 0 0)', 'oklch(0.76 0 0)', 'oklch(0.61 0 0)', 'oklch(0.47 0 0)'];
+const models = {
+  qwen32: { name: 'Qwen2.5 32B', quant: 'Q4_K_M', layers: 64, weights: 18.5, kvPerToken: 262144 / 1073741824 },
+  qwen14: { name: 'Qwen2.5 14B', quant: 'Q4_K_M', layers: 48, weights: 8.9, kvPerToken: 196608 / 1073741824 },
+  qwen72: { name: 'Qwen2.5 72B', quant: 'Q4_K_M', layers: 80, weights: 44.3, kvPerToken: 327680 / 1073741824 },
+};
+function initialNodes() {
+  return [
+    { id: 'main', connection: 'connected', modelState: 'not_loaded', loadedModel: null, name: 'Main Mac', hardware: 'MacBook Pro · Apple silicon', ram: 24, gpu: 16, reserve: 1.5, compute: 0.5, color: colors[0], main: true },
+    { id: 'studio', connection: 'connected', modelState: 'not_loaded', loadedModel: null, name: 'Mac Studio', hardware: 'Apple silicon · Helper 01', ram: 24, gpu: 16, reserve: 1.5, compute: 0.5, color: colors[1], main: false },
+    { id: 'air', connection: 'connected', modelState: 'not_loaded', loadedModel: null, name: 'MacBook Air', hardware: 'Apple silicon · Helper 02', ram: 16, gpu: 10.7, reserve: 1.5, compute: 0.5, color: colors[2], main: false },
+  ];
+}
+// CONCEPT: Connection and model runtime are separate observations.
+// WHY: A reachable node is not evidence of loaded weights or active inference.
+// DEPENDS ON: Explicit fixture state now; a live adapter must populate both later.
+// AFFECTS: Runtime labels must not change just because a capacity model is selected.
+function modelRuntime(node) {
+  const labels = { not_loaded: 'not loaded', loading: 'loading', serving: 'serving' };
+  const state = Object.hasOwn(labels, node.modelState) ? node.modelState : 'unknown';
+  return { state, label: labels[state] || 'unknown', model: state === 'loading' || state === 'serving' ? node.loadedModel || null : null };
+}
+
+// CONCEPT: Independent star routes so one selected node can highlight its own link.
+// WHY: A single combined path cannot distinguish helper links visually.
+// DEPENDS ON: Fixed four-node prototype geometry; main owns all helper links.
+// AFFECTS: Highlight selection only; these routes are not network measurements.
+function topologyLinks(nodes, selectedId) {
+  const main = nodes.find(node => node.main);
+  if (!main) return [];
+  const helpers = nodes.filter(node => !node.main);
+  const branch = helpers.length > 2 ? 250 : 285;
+  const positions = helpers.length > 2 ? [[245, 315], [755, 315], [500, 430]] : [[245, 385], [755, 385]];
+  return helpers.slice(0, positions.length).map((node, index) => {
+    const [x, y] = positions[index];
+    return { from: main.id, to: node.id, path: `M500 165V${branch}H${x}V${y}`, selected: selectedId === main.id || selectedId === node.id };
+  });
+}
+function baseBudget(node) { return Math.max(0, Math.min(node.ram, node.gpu) - node.reserve - node.compute); }
+function calculate(nodes, model, context) {
+  const kv = model.kvPerToken * context;
+  const base = nodes.reduce((total, node) => total + baseBudget(node), 0);
+  const available = Math.max(0, base - kv);
+  const largest = Math.max(0, ...nodes.map(node => baseBudget(node) - kv));
+  const status = model.weights + kv > base ? 'exceeds' : model.weights <= largest ? 'individual' : 'pool';
+  const ordered = [...nodes.filter(node => !node.main), ...nodes.filter(node => node.main)];
+  let start = 0;
+  const allocations = ordered.map((node, index) => {
+    const remaining = model.layers - start;
+    const count = index === ordered.length - 1 ? remaining : Math.min(remaining, Math.floor(model.layers * baseBudget(node) / (base || 1)));
+    const weights = model.weights * count / model.layers;
+    const cache = kv * count / model.layers;
+    const allocation = { node, start, end: start + count - 1, count, weights, kv: cache, headroom: baseBudget(node) - weights - cache };
+    start += count;
+    return allocation;
+  });
+  return { kv, base, available, largest, status, allocations, ratio: largest ? model.weights / largest : null, ram: nodes.reduce((total, node) => total + node.ram, 0) };
+}
+
+// CONCEPT: Accepted terminal design: nodes first, with model controls in the inspector.
+// WHY: Let Joseph choose hierarchy before styling later phases; keep fixtures explicit.
+// DEPENDS ON: engine.js sample budgets and the terminal DOM. No live services.
+// AFFECTS: Local preview only. Commands never execute on actual machines.
+
+const $ = id => document.getElementById(id);
+const nodes = initialNodes();
+const names = { main: 'main-mac', studio: 'mac-studio', air: 'macbook-air' };
+const fixtureNames = { qwen32: 'qwen2.5:32b', qwen14: 'qwen2.5:14b', qwen72: 'qwen2.5:72b' };
+const modelBehavior = 'inspector';
+let modelKey = 'qwen32';
+let context = 4096;
+let selected = 'main';
+const layout = 'multiplexer';
+let pending = null;
+let snapshot;
+let events = [
+  ['fixture', 'main-mac initialized sample pool'],
+  ['fixture', 'mac-studio ready / 14.0 GiB before KV'],
+  ['fixture', 'macbook-air ready / 8.7 GiB before KV'],
+];
+const gib = n => n.toFixed(1);
+const idFor = node => `n${String(nodes.indexOf(node) + 1).padStart(2, '0')}`;
+const nameFor = node => names[node.id] || node.name;
+const stages = ['Discovered', 'Checking compatibility', 'Ready', 'Loading model', 'Serving'];
+function element(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+// Connection identity is independent of the Graphite selection accent.
+// Unknown state stays neutral; only explicit connected state gets a green dot.
+function connectionBadge(node, extraClass = '') {
+  const state = ['connected', 'connecting', 'disconnected'].includes(node.connection) ? node.connection : 'unknown';
+  const badge = element('span', `connection-status ${extraClass}`.trim());
+  badge.dataset.connection = state;
+  const dot = element('i', 'connection-dot');
+  dot.setAttribute('aria-hidden', 'true');
+  badge.append(dot, document.createTextNode(state));
+  return badge;
+}
+function respond(text, error = false) {
+  $('command-response').textContent = text;
+  $('command-response').style.color = error ? 'var(--warning)' : 'var(--muted)';
+}
+function addEvent(text) {
+  events.push(['preview', text]);
+  events = events.slice(-5);
+  renderEvents();
+}
+function renderEvents() {
+  $('event-log').replaceChildren(...events.map(([time, text]) => {
+    const row = element('div', 'log-row');
+    row.append(element('time', '', time), element('span', '', text));
+    return row;
+  }));
+}
+function render() {
+  const model = models[modelKey];
+  snapshot = calculate(nodes, model, context);
+  const s = snapshot;
+  const connected = nodes.filter(node => node.connection === 'connected').length;
+  $('session-count').textContent = `${connected} connected / ${nodes.length + (pending ? 1 : 0)} nodes`;
+  $('nodes-status').dataset.connection = connected ? 'connected' : 'unknown';
+  $('directory-count').textContent = `[${nodes.length}]`;
+  $('monitor-count').textContent = `${nodes.length} connected ${LIVE ? 'live' : 'fixture'} nodes`;
+  $('monitor-budget').textContent = `${gib(s.available)} GiB`;
+  $('status-memory').textContent = `${s.ram} GiB physical / ${gib(s.available)} GiB weight capacity`;
+  $('nodes-status').replaceChildren(element('i', 'connection-dot'), document.createTextNode(`${connected} ${LIVE ? 'live' : 'preview'} nodes connected${pending ? ' / 1 joining' : ''}`));
+  $('dock-model').textContent = fixtureNames[modelKey];
+  $('dock-context').textContent = context.toLocaleString('en-US');
+  const fitText = { pool: 'requires pool', individual: 'fits individually', exceeds: 'exceeds capacity' }[s.status];
+  $('dock-fit').textContent = fitText;
+  $('dock-fit').style.color = s.status === 'exceeds' ? 'var(--negative)' : 'var(--accent)';
+  $('dock-budget').textContent = `${gib(model.weights)} / ${gib(s.available)} GiB`;
+  $('budget-fill').style.width = `${Math.min(100, model.weights / (s.available || 1) * 100)}%`;
+  $('budget-fill').style.background = s.status === 'exceeds' ? 'var(--negative)' : 'var(--secondary)';
+  const explanation = s.status === 'pool' ? `${gib(model.weights)} GiB of weights exceed the largest single-machine budget (${gib(s.largest)} GiB). Estimated pool weight capacity is ${gib(s.available)} GiB.` : s.status === 'individual' ? `The largest machine has ${gib(s.largest)} GiB for ${gib(model.weights)} GiB of weights at this context. Pooling is optional for capacity.` : `The model needs ${gib(model.weights - s.available)} GiB more than the pool has available. Add a machine, lower context or choose a smaller model.`;
+  $('fit-explanation').className = `fit-explanation${s.status === 'exceeds' ? ' negative' : ''}`;
+  $('fit-explanation').replaceChildren(element('strong', '', fitText), document.createTextNode(explanation));
+  $('fit-calculation').textContent = `${gib(s.base)} GiB after GPU caps, reserves and compute buffers − ${gib(s.kv)} GiB f16 KV at ${context.toLocaleString('en-US')} tokens × one slot = ${gib(s.available)} GiB weight capacity.`;
+  renderNodes();
+  renderInspector();
+}
+function renderNodes() {
+  const map = $('map-nodes');
+  const table = $('node-table');
+  const directory = $('directory');
+  map.replaceChildren(); table.replaceChildren(); directory.replaceChildren();
+  let helper = 0;
+  for (const node of nodes) {
+    const a = snapshot.allocations.find(value => value.node.id === node.id);
+    const budget = Math.max(0, baseBudget(node) - a.kv);
+    const isSelected = node.id === selected;
+    const button = element('button', `node ${node.main ? 'node-main' : `node-helper-${++helper}`}`);
+    const runtime = modelRuntime(node);
+    button.setAttribute('aria-pressed', String(isSelected && (layout === 'multiplexer' || document.body.classList.contains('selection-open'))));
+    button.setAttribute('aria-label', `${nameFor(node)}, ${node.main ? 'main' : 'helper'}, connection ${node.connection || 'unknown'}, model ${runtime.label}. Inspect memory and planned allocation.`);
+    const state = connectionBadge(node, 'node-state');
+    const bottom = element('span', 'node-bottom');
+    bottom.append(element('span', '', `${node.ram} GiB physical`), element('strong', '', `${gib(budget)} usable`));
+    button.append(element('span', 'node-id', `[${idFor(node)}]`), state, element('span', 'node-name', nameFor(node)), bottom);
+    const modelStatus = element('span', 'node-model-status');
+    modelStatus.append(element('span', '', 'model: '), element('strong', '', runtime.label));
+    modelStatus.dataset.modelState = runtime.state;
+    button.append(modelStatus);
+    button.addEventListener('click', () => select(node.id));
+    map.append(button);
+    const row = element('tr', isSelected ? 'selected' : '');
+    const first = element('td');
+    const link = element('button', 'table-node');
+    link.append(element('small', '', idFor(node)), document.createTextNode(nameFor(node)));
+    link.addEventListener('click', () => select(node.id));
+    first.append(link);
+    const budgetCell = element('td', '', `${gib(budget)} GiB`);
+    const track = element('span', 'table-budget'); const fill = element('span');
+    fill.style.width = `${Math.min(100, a.weights / (budget || 1) * 100)}%`;
+    track.append(fill); budgetCell.append(track);
+    const connection = element('td'); connection.append(connectionBadge(node));
+    row.append(first, element('td', '', node.main ? 'main' : 'helper'), connection, element('td', 'runtime-cell', runtime.label), element('td', '', `${node.ram} GiB`), element('td', '', `${gib(node.gpu)} GiB`), budgetCell);
+    table.append(row);
+    const dir = element('button', 'directory-node');
+    dir.setAttribute('aria-pressed', String(isSelected));
+    const title = element('span'); title.append(element('em', '', idFor(node)), document.createTextNode(nameFor(node)));
+    const detail = element('small', '', `${node.main ? 'main' : 'helper'} / `);
+    detail.append(connectionBadge(node));
+    dir.append(title, detail, element('small', 'directory-model', `model: ${runtime.label}`));
+    dir.addEventListener('click', () => select(node.id));
+    directory.append(dir);
+  }
+  document.body.classList.toggle('has-extra', nodes.length > 3);
+  renderLinks();
+}
+function renderLinks() {
+  const links = topologyLinks(nodes, selected);
+  const svg = $('topology-links');
+  // SVG paints in DOM order. Selected routes go last so a shared main trunk
+  // cannot be darkened by an unselected helper route drawn over it.
+  svg.replaceChildren(...[...links].sort((a, b) => Number(a.selected) - Number(b.selected)).map(link => {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', link.path);
+    path.setAttribute('class', 'topology-link');
+    path.setAttribute('vector-effect', 'non-scaling-stroke');
+    path.dataset.node = link.to;
+    path.dataset.selected = String(link.selected);
+    return path;
+  }));
+  const node = nodes.find(value => value.id === selected);
+  const main = nodes.find(value => value.main);
+  $('selection-trace').textContent = node.main ? `${nameFor(main)} → ${links.length} helper links` : `${nameFor(main)} ↔ ${nameFor(node)}`;
+}
+function fillDefinition(id, pairs) {
+  $(id).replaceChildren(...pairs.flatMap(([label, value]) => [element('dt', '', label), element('dd', '', value)]));
+}
+function renderInspector() {
+  const node = nodes.find(value => value.id === selected) || nodes[0];
+  const a = snapshot.allocations.find(value => value.node.id === node.id);
+  $('inspect-id').textContent = `[${idFor(node)}]`;
+  $('inspect-title').textContent = nameFor(node);
+  $('inspect-connection').replaceChildren(connectionBadge(node));
+  const runtime = modelRuntime(node);
+  $('inspect-model-status').textContent = runtime.label;
+  $('inspect-model-runtime').dataset.modelState = runtime.state;
+  $('inspect-loaded-model').textContent = runtime.model ? fixtureNames[runtime.model] || runtime.model : '';
+  $('inspect-loaded-model').hidden = !runtime.model;
+  $('inspect-hardware').textContent = LIVE && node.hardware ? `${node.main ? 'coordinator + compute' : 'RPC helper'} / ${node.hardware}` : `Apple silicon / ${node.main ? 'coordinator + compute' : 'RPC helper'}`;
+  fillDefinition('inspect-memory', [['physical RAM', `${node.ram} GiB`], ['GPU budget', `${gib(node.gpu)} GiB`], ['reserve', `${gib(node.reserve)} GiB`], ['compute buffers', `${gib(node.compute)} GiB`], ['weight capacity', `${gib(Math.max(0, baseBudget(node) - a.kv))} GiB`]]);
+  fillDefinition('inspect-allocation', [['layers', a.count ? `${String(a.start).padStart(2, '0')}–${String(a.end).padStart(2, '0')}` : 'none'], ['weights', `${gib(a.weights)} GiB`], ['KV share', `${gib(a.kv)} GiB`], [a.headroom >= 0 ? 'headroom' : 'shortfall', `${gib(Math.abs(a.headroom))} GiB`]]);
+  $('allocation-strip').replaceChildren(...snapshot.allocations.filter(part => part.count).map(part => {
+    const button = element('button', '', idFor(part.node));
+    button.style.flex = part.count;
+    button.dataset.node = part.node.id;
+    button.setAttribute('aria-pressed', String(part.node.id === selected));
+    button.setAttribute('aria-label', `${nameFor(part.node)}: planned layers ${part.start} through ${part.end}. Select node.`);
+    button.addEventListener('click', () => select(part.node.id));
+    return button;
+  }));
+  $('inspect-explanation').textContent = `min(${node.ram} physical, ${gib(node.gpu)} GPU cap) − ${gib(node.reserve)} reserve − ${gib(node.compute)} buffers − ${gib(a.kv)} estimated KV. Shared memory counted once.`;
+}
+function select(id) {
+  if (modelBehavior === 'inspector') closeModel();
+  selected = id;
+  document.body.classList.add('selection-open');
+  renderNodes(); renderInspector();
+  respond(`selected ${idFor(nodes.find(node => node.id === id))}`);
+}
+// Model and node detail share the accepted inspector; node selection returns here.
+function closeModel(returnFocus = false) {
+  $('inspector-model-panel').hidden = true;
+  $('node-inspector').hidden = false;
+  document.body.classList.remove('model-in-inspector');
+  $('right-inspector').setAttribute('aria-labelledby', 'inspect-title');
+  $('model-open').setAttribute('aria-expanded', 'false');
+  $('model-tab').setAttribute('aria-expanded', 'false');
+  if (returnFocus) $('model-open').focus();
+}
+function openModel() {
+  $('inspector-model-panel').hidden = false;
+  $('node-inspector').hidden = true;
+  document.body.classList.add('model-in-inspector');
+  $('right-inspector').setAttribute('aria-labelledby', 'model-title');
+  $('model-open').setAttribute('aria-expanded', 'true');
+  $('model-tab').setAttribute('aria-expanded', 'true');
+  $('model-select').focus({ preventScroll: true });
+  respond('model controls / inspector');
+}
+function open(id) { if (!$(id).open) $(id).showModal(); }
+function openJoin() {
+  if (nodes.length >= 4 && !pending) { respond('design preview limited to 4 nodes', true); return; }
+  $('join-form').hidden = !!pending;
+  $('join-progress').hidden = !pending;
+  if (pending) renderJoin();
+  open('join-dialog');
+}
+function renderJoin() {
+  $('join-contribution').textContent = `${pending.node.name}: ${pending.node.ram} GiB physical / ${gib(baseBudget(pending.node))} GiB contribution before KV. Capacity is added only at Serving.`;
+  $('join-stages').replaceChildren(...stages.map((stage, index) => {
+    const row = element('li', index === pending.stage ? 'current' : index < pending.stage ? 'done' : '');
+    row.append(element('span', '', index < pending.stage ? '[✓]' : `[${index + 1}]`), document.createTextNode(stage));
+    return row;
+  }));
+  $('join-next').textContent = ['check compatibility →', 'mark ready →', 'load sample layers →', 'mark serving →'][pending.stage];
+}
+$('model-tab').addEventListener('click', openModel);
+$('model-open').addEventListener('click', openModel);
+$('model-close').addEventListener('click', () => closeModel(true));
+$('model-done').addEventListener('click', () => closeModel(true));
+$('events-tab').addEventListener('click', () => { document.body.classList.toggle('events-open'); respond('preview session log toggled'); });
+$('help-open').addEventListener('click', () => open('help-dialog'));
+$('research-open').addEventListener('click', () => open('research-dialog'));
+$('join-open').addEventListener('click', openJoin);
+$('inspect-join').addEventListener('click', openJoin);
+document.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => $(button.dataset.close).close()));
+$('model-select').addEventListener('change', event => { modelKey = event.target.value; render(); addEvent(`model set to ${fixtureNames[modelKey]}`); });
+$('context-select').addEventListener('change', event => { context = Number(event.target.value); render(); addEvent(`context set to ${context}`); });
+$('join-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const name = $('join-name').value.trim(); if (!name) return;
+  const ram = Number($('join-memory').value);
+  pending = { stage: 0, modelKey, node: { id: 'preview-4', connection: 'connecting', modelState: 'not_loaded', loadedModel: null, name, ram, gpu: ram === 24 ? 16 : 10.7, reserve: 1.5, compute: .5, main: false } };
+  $('join-form').hidden = true; $('join-progress').hidden = false;
+  renderJoin(); render(); addEvent(`${name} discovered (joining preview)`);
+});
+$('join-next').addEventListener('click', () => {
+  if (!pending) return;
+  pending.stage++;
+  if (pending.stage === 3) { pending.node.modelState = 'loading'; pending.node.loadedModel = pending.modelKey; }
+  if (pending.stage === 4) {
+    const node = pending.node; node.connection = 'connected'; node.modelState = 'serving'; node.loadedModel = pending.modelKey; nodes.push(node); pending = null;
+    $('join-dialog').close(); render();
+    addEvent(`${node.name} serving (preview) / +${gib(baseBudget(node))} GiB before KV`);
+    respond('sample node added; capacity recalculated');
+  } else { renderJoin(); addEvent(`${pending.node.name}: ${stages[pending.stage].toLowerCase()} (preview)`); }
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !document.querySelector('dialog[open]') && !$('inspector-model-panel').hidden) { event.preventDefault(); closeModel(true); return; }
+  if (event.altKey || event.ctrlKey || event.metaKey || event.target.closest('input,select,textarea,button,summary') || document.querySelector('dialog[open]')) return;
+  if (event.key === 'm') openModel();
+  else if (event.key === 'j') openJoin();
+  else if (event.key === '?') open('help-dialog');
+  else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    const index = nodes.findIndex(node => node.id === selected);
+    select(nodes[(index + (event.key === 'ArrowDown' ? 1 : nodes.length - 1)) % nodes.length].id);
+  }
+});
+$('command-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const value = $('command').value.trim();
+  const [command, argument] = value.split(/\s+/);
+  if (!value) return;
+  if (command === 'help') open('help-dialog');
+  else if (command === 'nodes') { document.body.classList.remove('selection-open'); renderNodes(); respond(`${nodes.length} connected ${LIVE ? 'live' : 'fixture'} nodes`); }
+  else if (command === 'inspect') {
+    const node = nodes.find(node => idFor(node) === argument);
+    if (node) select(node.id); else respond('unknown node; use inspect n01', true);
+  } else if (command === 'model' && models[argument]) { modelKey = argument; $('model-select').value = argument; render(); respond(`model ${fixtureNames[argument]}`); }
+  else if (command === 'context' && [2048, 4096, 8192, 16384, 32768].includes(Number(argument))) { context = Number(argument); $('context-select').value = argument; render(); respond(`context ${context}`); }
+  else if (command === 'join') openJoin();
+  else if (command === 'ask' && LIVE) liveAsk(value.slice(3).trim());
+  else respond('unknown preview command; type help', true);
+  addEvent(`$ ${value}`);
+  $('command').value = '';
+});
+// CONCEPT: live adapter for Joseph's Oasis design. Polls the pool's SpacetimeDB tables and main's llama-server every
+//          second and maps them onto the design's node model (connection, model runtime, hardware, events), plus an
+//          `ask <prompt>` command that streams an answer from llama-server with TTFT and tok/s.
+// WHY: Aayo (Sun 12:00am): real data on the new frontend. Data layer follows #32 (SpacetimeDB HTTP SQL, CORS open,
+//      anonymous reads of public tables); the look stays Joseph's. #33 rule: nothing on screen says FAILED.
+// DEPENDS ON: crates/control public tables (node, heartbeat, cluster_status, event); llama-server /health and
+//             /v1/chat/completions. URL params: ?stdb=http://<main>:3000&db=pool&llama=http://<main>:8080, ?fixture=1
+//             for the original fixture preview.
+// AFFECTS: display only; never calls a reducer and never changes the pool.
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const LIVE_STDB = params.get('stdb') || `http://${location.hostname || '127.0.0.1'}:3000`;
+const LIVE_DB = params.get('db') || 'pool';
+const LIVE_LLAMA = params.get('llama') || `http://${(() => { try { return new URL(LIVE_STDB).hostname; } catch { return '127.0.0.1'; } })()}:8080`;
+let liveCluster = { state: 'EMPTY', model: '', endpoint: '' };
+let liveError = '';
+
+// SpacetimeDB HTTP SQL rows are positional arrays; Option = [0, v] (some) | [1, []] (none); Timestamp = [micros].
+function liveUnpack(v) {
+  return Array.isArray(v) && v.length === 2 && (v[0] === 0 || (v[0] === 1 && Array.isArray(v[1]) && !v[1].length)) ? (v[0] === 0 ? v[1] : null) : v;
+}
+async function liveSql(query) {
+  const r = await fetch(`${LIVE_STDB}/v1/database/${LIVE_DB}/sql`, { method: 'POST', body: query, signal: AbortSignal.timeout(2000) });
+  if (!r.ok) throw new Error(`SpacetimeDB ${r.status}`);
+  const [res] = await r.json();
+  const cols = res.schema.elements.map(e => e.name.some);
+  return res.rows.map(row => Object.fromEntries(cols.map((c, i) => [c, liveUnpack(row[i])])));
+}
+async function liveHealth() {
+  try { const r = await fetch(`${LIVE_LLAMA}/health`, { signal: AbortSignal.timeout(1500) }); return r.status; } catch { return 0; }
+}
+const liveMicros = t => new Date((Array.isArray(t) ? t[0] : t) / 1000);
+const liveGpuGiB = devices => (devices || []).filter(d => !['BLAS', 'CPU'].includes(d[1]) && !/^(BLAS|CPU)/.test(d[0]))
+  .reduce((s, d) => s + Number(d[2] || 0), 0) / 1024;
+const LOADING_STATES = ['PLANNED', 'STARTING_HELPERS', 'LAUNCHING'];
+
+function liveRuntime(state, health, isMain, nodeState) {
+  if (isMain) return health === 200 ? (LOADING_STATES.includes(state) ? 'loading' : 'serving') : health === 503 ? 'loading' : 'not_loaded';
+  if (state === 'SERVING' && nodeState === 'ACTIVE') return 'serving';
+  if (LOADING_STATES.includes(state) && ['READY', 'ACTIVE'].includes(nodeState)) return 'loading';
+  return 'not_loaded';
+}
+
+async function livePoll() {
+  let rows, hbs, cs, evs, health;
+  try {
+    [rows, hbs, cs, evs, health] = await Promise.all([
+      liveSql('SELECT * FROM node'),
+      liveSql('SELECT node_id, rpc_state, rpc_port, port_accepting FROM heartbeat'),
+      liveSql('SELECT * FROM cluster_status'),
+      liveSql('SELECT seq, at, kind, node_id, message FROM event'),
+      liveHealth(),
+    ]);
+    liveError = '';
+  } catch (e) {
+    liveError = `waiting for SpacetimeDB at ${LIVE_STDB} (${e.message})`;
+    liveDecorate();
+    return;
+  }
+  const c = cs[0] || {};
+  // #33 (Aayo): never FAILED on screen; an old row reads STOPPED.
+  liveCluster = { state: c.cluster_state === 'FAILED' ? 'STOPPED' : (c.cluster_state || 'EMPTY'), model: c.model_id || '', endpoint: c.endpoint || `${LIVE_LLAMA}/v1` };
+  const mainRow = rows.find(r => r.role === 'main');
+  const helpers = rows.filter(r => r.role === 'helper').sort((a, b) => a.node_id.localeCompare(b.node_id));
+  const toNode = (r, isMain) => {
+    const hb = r && hbs.find(h => h.node_id === r.node_id);
+    const online = isMain ? (health > 0 || (r && r.online && r.state !== 'LOST')) : (r.online && r.state !== 'LOST');
+    const modelState = liveRuntime(liveCluster.state, health, isMain, r && r.state);
+    return {
+      id: isMain ? 'main' : r.node_id,
+      connection: online ? 'connected' : 'disconnected',
+      modelState,
+      loadedModel: modelState === 'not_loaded' ? null : (liveCluster.model || null),
+      name: isMain ? (r ? r.node_id : 'main') : r.node_id,
+      hardware: r ? [r.cpu_model, r.os_family, (r.addresses || [])[0], hb && hb.rpc_port ? `rpc ${hb.rpc_state === 'failed' ? 'stopped' : hb.rpc_state} :${hb.rpc_port}` : ''].filter(Boolean).join(' · ')
+        : `llama-server ${LIVE_LLAMA.replace(/^https?:\/\//, '')}`,
+      ram: r ? Math.round(Number(r.total_memory_bytes) / 2 ** 30) : Number(params.get('main_ram') || 0),
+      gpu: r ? +liveGpuGiB(r.devices).toFixed(1) : Number(params.get('main_gpu') || 0),
+      reserve: 1.5, compute: 0.5,
+      color: colors[0], main: isMain,
+    };
+  };
+  const next = [toNode(mainRow, true), ...helpers.map(r => toNode(r, false))];
+  next.forEach((n, i) => { n.color = colors[i % colors.length]; names[n.id] = n.name; });
+  nodes.splice(0, nodes.length, ...next);
+  if (!nodes.some(n => n.id === selected)) selected = 'main';
+  events = evs.sort((a, b) => a.seq - b.seq).slice(-5).map(e => [
+    liveMicros(e.at).toLocaleTimeString('en-US', { hour12: false }),
+    `${e.kind}${e.node_id ? ' ' + e.node_id : ''}${e.message ? ' / ' + e.message : ''}`,
+  ]).concat(liveLocal.slice(-2));
+  renderEvents();
+  render();
+  liveDecorate();
+}
+
+// Page-side lines (answers, TTFT) kept next to the pool's own events.
+const liveLocal = [];
+function liveNote(text) {
+  liveLocal.push([new Date().toLocaleTimeString('en-US', { hour12: false }), text]);
+  events = events.concat([liveLocal[liveLocal.length - 1]]).slice(-6);
+  renderEvents();
+}
+
+function liveDecorate() {
+  const env = document.querySelector('.environment');
+  if (env) env.innerHTML = `<i></i> ${liveError ? 'connecting' : 'live'} <span>/</span> ${esc(LIVE_STDB.replace(/^https?:\/\//, ''))} / ${esc(LIVE_DB)}`;
+  const path = document.querySelector('.path');
+  if (path) path.textContent = `~/oasis/${LIVE_DB}`;
+  const connected = nodes.filter(n => n.connection === 'connected').length;
+  $('session-count').textContent = liveError ? liveError : `${liveCluster.state.toLowerCase().replace('_', ' ')} / ${connected} connected / ${nodes.length} nodes`;
+  if (liveCluster.model) $('dock-model').textContent = liveCluster.model;
+}
+
+// `ask <prompt>`: stream one answer from llama-server; show it in the command line, TTFT and tok/s in the log.
+async function liveAsk(prompt) {
+  if (!prompt) { respond('usage: ask <question>', true); return; }
+  const t0 = performance.now();
+  let ttft = null, text = '', timings = null;
+  respond('…');
+  try {
+    const r = await fetch(`${LIVE_LLAMA}/v1/chat/completions`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: prompt }], stream: true, max_tokens: 256, stream_options: { include_usage: true } }),
+    });
+    if (!r.ok || !r.body) throw new Error(`llama-server ${r.status}`);
+    const reader = r.body.getReader(), dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+        if (!line.startsWith('data:') || line.includes('[DONE]')) continue;
+        const msg = JSON.parse(line.slice(5));
+        const piece = msg.choices && msg.choices[0] && msg.choices[0].delta && msg.choices[0].delta.content;
+        if (piece) { if (ttft === null) ttft = performance.now() - t0; text += piece; respond(text); }
+        if (msg.timings) timings = msg.timings;
+      }
+    }
+    const tps = timings && timings.predicted_per_second ? timings.predicted_per_second.toFixed(1) : '?';
+    liveNote(`answer / TTFT ${ttft === null ? '?' : Math.round(ttft)} ms / ${tps} tok/s / ${liveCluster.model || 'model'}`);
+    $('live-ttft').textContent = ttft === null ? '–' : `${Math.round(ttft)} ms`;
+    $('live-tps').textContent = `${tps} tok/s`;
+    $('live-speed-note').textContent = 'last answer';
+  } catch (e) {
+    respond(`no answer: ${e.message} (is the pool serving?)`, true);
+  }
+}
+
+function startLive() {
+  livePoll().then(() => { if (params.get('ask')) liveAsk(params.get('ask')); });
+  setInterval(livePoll, 1000);
+}
+
+closeModel(); renderEvents(); render();
+if (LIVE) startLive();
+
+</script>
+</body></html>
